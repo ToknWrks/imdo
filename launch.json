@@ -1,0 +1,58 @@
+{
+  "kind": "evm_project",
+  "token": {
+    "contract": "LaunchToken",
+    "name": "ADAM",
+    "symbol": "ADAM",
+    "decimals": 18
+  },
+  "contracts": [
+    {
+      "contract": "AdamDistributor",
+      "constructorArgs": [
+        "$token",
+        "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+        "0xc50673edb3a7b94e8cad8a7d4e0cd68864e33edf",
+        "0x000000000004444c5dc75cb358380d2e3de08a90",
+        "0x0000000000000000000000000000000000000000"
+      ]
+    },
+    {
+      "contract": "AdamTreasury",
+      "constructorArgs": [
+        "$contract:AdamDistributor",
+        "$owner",
+        "0x000000000004444c5dc75cb358380d2e3de08a90",
+        "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+        "10000",
+        "200",
+        "0x0000000000000000000000000000000000000000",
+        "0",
+        "0xc50673edb3a7b94e8cad8a7d4e0cd68864e33edf",
+        "0",
+        "60",
+        "0xfaaad5b731f52cdc9746f2414c823eca9b06e844",
+        "1000",
+        "1000000000000000000",
+        "300",
+        "600"
+      ]
+    },
+    {
+      "contract": "AdamHook",
+      "constructorArgs": [
+        "0x000000000004444c5dc75cb358380d2e3de08a90",
+        "$token",
+        "$contract:AdamTreasury",
+        "$owner"
+      ]
+    }
+  ],
+  "pool": {
+    "pairedCurrency": "0x0000000000000000000000000000000000000000",
+    "fee": 3000,
+    "tickSpacing": 60,
+    "initialPrice": "79228162514264337593543950336"
+  },
+  "notes": "Describes the accepted LaunchToken, AdamDistributor, AdamTreasury and AdamHook sources in constructor dependency order. LaunchToken has no constructor arguments and sets name/symbol ADAM and 18 decimals. Policy $owner supplies both the Treasury team beneficiary and Hook owner; no privileged wallet is hard-coded. Distributor excludedExtra is zero because no additional exclusion is configured and later contracts cannot be referenced. Treasury defaults match script/DeployAdam.s.sol: ETH/IMD fee 10000, spacing 200, no hook or hook tax; ETH/PNKSTR fee 0, spacing 60, the specified hook and a 1000-bps output-tax assumption. These reward-pool fees are separate from the launch pool fee. Each buy is capped at 1 ETH, slippage tolerance is 300 bps below the spot quote after fees/tax, and process() has a 600-second cooldown. Anyone can call process(), for example hourly. New ETH is split 10% to $owner and 90% equally between reward legs, with odd-wei dust assigned to PNKSTR; after three days of continuous failure a leg's pending ETH can be rerouted to the other reward. Spot-derived minOut is not an independent price oracle or a guarantee against MEV. The accepted mainnet-fork tests encode the pool and tax assumptions; those values are not a fresh onchain measurement by this manifest. Holders must approve and stake ADAM in AdamDistributor to earn IMD/PNKSTR, then call claim(), unstake() or exit(); ordinary wallet transfers do not update rewards. Its fixed exclusions cover zero, dead, itself, ADAM, PoolManager and reward tokens. Hook and Treasury are not explicitly excluded, though neither exposes a staking operation. Pool defaults use the permitted native-ETH pair, fee 3000, spacing 60 and decimal sqrtPriceX96 2^96; they do not reproduce the manual script's fee-0 pool or opening tick. The factory supplies its own initialization-only pool guard, LP and MerkleDistributor, which are not application entries. Deployment blockers remain in the accepted integration: AdamHook validates that its address masked by 0x3fff equals 0x20cc, so its CREATE2 salt must be mined for the actual factory, creation code and resolved arguments. This schema has no salt or custom-pool-hook field. The factory guard cannot invoke AdamHook's swap callbacks, and AdamHook.beforeInitialize requires sender == $owner. Consequently this manifest alone cannot establish the requested fee-taking ETH/ADAM pool or its anti-snipe schedule; deploying an unattached hook does not collect fees. Compatible factory deployment/address-mining and hook attachment/initialization support must be established before treating the full system as deploy-ready. Notes authorize no initialization calls, script execution or policy changes."
+}
