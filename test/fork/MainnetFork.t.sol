@@ -22,12 +22,10 @@ import {DeployAdam} from "../../script/DeployAdam.s.sol";
 import {AdamTreasury} from "../../src/AdamTreasury.sol";
 
 /// @notice Mainnet-fork checks against the real PoolManager, PositionManager, IMD pool and PNKSTR pool.
-/// Excluded from the default profile (needs network): `FOUNDRY_PROFILE=fork forge test -vv`.
+/// Excluded from the default profile; the fork profile skips unless MAINNET_RPC_URL is configured.
 contract MainnetForkTest is Test {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
-
-    string internal constant RPC = "https://ethereum-rpc.publicnode.com";
 
     DeployAdam internal script;
     DeployAdam.Config internal cfg;
@@ -39,11 +37,17 @@ contract MainnetForkTest is Test {
 
     PoolKey internal imdKey;
     PoolKey internal pnkstrKey;
+    uint256 internal managerEthBeforeLaunch;
 
     receive() external payable {}
 
     function setUp() public {
-        vm.createSelectFork(RPC, 26_126_549);
+        string memory rpc = vm.envOr("MAINNET_RPC_URL", string(""));
+        if (bytes(rpc).length == 0) {
+            vm.skip(true);
+            return;
+        }
+        vm.createSelectFork(rpc, 26_126_549);
         script = new DeployAdam();
         pm = IPoolManager(script.POOL_MANAGER());
         swapRouter = new PoolSwapTest(pm);
@@ -51,6 +55,7 @@ contract MainnetForkTest is Test {
         cfg = script.mainnetConfig(address(script), teamWallet, address(script), address(0));
         cfg.create2Deployer = address(script);
         d = script.deployContracts(cfg);
+        managerEthBeforeLaunch = address(pm).balance;
         (d.sqrtPriceX96, d.liquidity) = script.launchPool(cfg, d);
 
         imdKey = PoolKey({
@@ -139,7 +144,7 @@ contract MainnetForkTest is Test {
         uint256 dust = d.token.balanceOf(address(script));
         assertLe(dust, 1_000, "liquidity fixed-point rounding leaves only sub-token dust");
         assertEq(d.token.balanceOf(address(pm)) + dust, 1_000_000_000e18);
-        assertEq(address(pm).balance >= 0, true);
+        assertEq(address(pm).balance, managerEthBeforeLaunch, "single-sided launch deposits zero ETH");
         (uint160 sqrtP, int24 tick,,) = pm.getSlot0(d.key.toId());
         assertEq(sqrtP, TickMath.getSqrtPriceAtTick(cfg.initialTick));
         assertEq(tick, cfg.initialTick);
