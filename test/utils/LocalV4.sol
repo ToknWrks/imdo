@@ -130,7 +130,7 @@ abstract contract LocalV4 is Test {
         );
     }
 
-    function _deployAdamSystem() internal {
+    function _deployAdamSystem() internal virtual {
         deployScript = new DeployAdam();
         cfg = deployScript.mainnetConfig(address(this), teamWallet, hookOwner, address(0));
         cfg.poolManager = address(poolManager);

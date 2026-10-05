@@ -31,6 +31,11 @@ import {HookMiner} from "./utils/HookMiner.sol";
 ///   5. initialize the ETH/ADAM pool (owner-only, enforced by the hook);
 ///   6. mint the single-sided ADAM position [LOWER_TICK, INITIAL_TICK] through the PositionManager.
 ///
+/// Hook-only mode (post-factory launch): when `TREASURY` is set, steps 1-3 are skipped. The ADAM token and the
+/// AdamDistributor are read from that Treasury, the hook is mined and deployed against it, and the hooked pool
+/// is seeded with `LIQUIDITY_ADAM` (the owner's actual allocation; defaults to the full supply). Fees from the
+/// new pool therefore reach the already-deployed Distributor and its stakers.
+///
 /// Every number lives in `mainnetConfig`; tests call `deployContracts` / `launchPool` directly.
 contract DeployAdam is Script {
     using CurrencyLibrary for Currency;
@@ -70,7 +75,8 @@ contract DeployAdam is Script {
         address deployer;
         address teamWallet;
         address hookOwner;
-        address adamToken; // address(0) => deploy LaunchToken
+        address adamToken; // address(0) => deploy LaunchToken (ignored when `treasury` is set)
+        address treasury; // address(0) => deploy Distributor + Treasury; else hook-only against this Treasury
         address poolManager;
         address positionManager;
         address permit2;
@@ -109,6 +115,9 @@ contract DeployAdam is Script {
     error HookAddressMismatch(address expected, address actual);
     error DeployerMustOwnHookAtLaunch();
     error TickNotAligned();
+    error PipelineTokenMismatch(address configured, address pipeline);
+    error PipelineRewardMismatch(uint8 leg, address configured, address pipeline);
+    error InsufficientAdamForLiquidity(uint256 held, uint256 required);
 
     function mainnetConfig(address deployer, address teamWallet, address hookOwner, address adamToken)
         public
@@ -119,6 +128,7 @@ contract DeployAdam is Script {
         cfg.teamWallet = teamWallet;
         cfg.hookOwner = hookOwner;
         cfg.adamToken = adamToken;
+        cfg.treasury = address(0);
         cfg.poolManager = POOL_MANAGER;
         cfg.positionManager = POSITION_MANAGER;
         cfg.permit2 = PERMIT2;
@@ -145,11 +155,18 @@ contract DeployAdam is Script {
 
     /// @notice Entry point for the manual mainnet deployment. Reads only the deployer-specific values from
     /// the environment; every protocol constant is in `mainnetConfig`.
+    ///
+    /// Environment: `DEPLOYER`, `TEAM_WALLET` (required); `ADAM_TOKEN` (optional, reuse a token);
+    /// `TREASURY` (optional, hook-only mode against an existing AdamTreasury; `TEAM_WALLET` is then only
+    /// informational because the Treasury already holds the team wallet); `LIQUIDITY_ADAM` (optional, the ADAM
+    /// amount the deployer actually holds and wants in the single-sided position; defaults to the full supply).
     function run() external {
         address deployer = vm.envAddress("DEPLOYER");
         address teamWallet = vm.envAddress("TEAM_WALLET");
         address adamToken = vm.envOr("ADAM_TOKEN", address(0));
         Config memory cfg = mainnetConfig(deployer, teamWallet, deployer, adamToken);
+        cfg.treasury = vm.envOr("TREASURY", address(0));
+        cfg.liquidityAdam = vm.envOr("LIQUIDITY_ADAM", LIQUIDITY_ADAM);
 
         vm.startBroadcast();
         Deployment memory d = deployContracts(cfg);
@@ -165,38 +182,43 @@ contract DeployAdam is Script {
         console2.log("position liquidity", d.liquidity);
     }
 
-    /// @notice Steps 1-4. Works both under `vm.startBroadcast` (CREATE2 through the deterministic deployer) and
-    /// when called from a test (CREATE2 from this contract) as long as `cfg.create2Deployer` matches.
+    /// @notice Steps 1-4, or hook-only (step 4) when `cfg.treasury` names an existing AdamTreasury. Works both
+    /// under `vm.startBroadcast` (CREATE2 through the deterministic deployer) and when called from a test
+    /// (CREATE2 from this contract) as long as `cfg.create2Deployer` matches.
     function deployContracts(Config memory cfg) public returns (Deployment memory d) {
-        if (cfg.adamToken == address(0)) {
-            d.token = new LaunchToken();
-            // In a test the token mints to this contract; under broadcast it mints to the deployer directly.
-            uint256 held = d.token.balanceOf(address(this));
-            if (held != 0 && cfg.deployer != address(this)) d.token.transfer(cfg.deployer, held);
+        if (cfg.treasury != address(0)) {
+            (d.token, d.distributor, d.treasury) = resolvePipeline(cfg);
         } else {
-            d.token = LaunchToken(cfg.adamToken);
+            if (cfg.adamToken == address(0)) {
+                d.token = new LaunchToken();
+                // In a test the token mints to this contract; under broadcast it mints to the deployer directly.
+                uint256 held = d.token.balanceOf(address(this));
+                if (held != 0 && cfg.deployer != address(this)) d.token.transfer(cfg.deployer, held);
+            } else {
+                d.token = LaunchToken(cfg.adamToken);
+            }
+
+            d.distributor = new AdamDistributor(address(d.token), cfg.imd, cfg.pnkstr, cfg.poolManager, address(0));
+
+            d.treasury = new AdamTreasury(
+                address(d.distributor),
+                cfg.teamWallet,
+                cfg.poolManager,
+                cfg.imd,
+                cfg.imdFee,
+                cfg.imdTickSpacing,
+                cfg.imdHooks,
+                cfg.imdTaxBps,
+                cfg.pnkstr,
+                cfg.pnkstrFee,
+                cfg.pnkstrTickSpacing,
+                cfg.pnkstrHooks,
+                cfg.pnkstrTaxBps,
+                cfg.maxEthPerBuy,
+                cfg.slippageBps,
+                cfg.cooldown
+            );
         }
-
-        d.distributor = new AdamDistributor(address(d.token), cfg.imd, cfg.pnkstr, cfg.poolManager, address(0));
-
-        d.treasury = new AdamTreasury(
-            address(d.distributor),
-            cfg.teamWallet,
-            cfg.poolManager,
-            cfg.imd,
-            cfg.imdFee,
-            cfg.imdTickSpacing,
-            cfg.imdHooks,
-            cfg.imdTaxBps,
-            cfg.pnkstr,
-            cfg.pnkstrFee,
-            cfg.pnkstrTickSpacing,
-            cfg.pnkstrHooks,
-            cfg.pnkstrTaxBps,
-            cfg.maxEthPerBuy,
-            cfg.slippageBps,
-            cfg.cooldown
-        );
 
         bytes memory ctorArgs = abi.encode(cfg.poolManager, address(d.token), address(d.treasury), cfg.hookOwner);
         (address expectedHook, bytes32 salt) =
@@ -216,6 +238,25 @@ contract DeployAdam is Script {
         });
     }
 
+    /// @notice Hook-only mode: read the ADAM token and the AdamDistributor from an existing AdamTreasury and
+    /// check that it was built for the configured reward tokens. Nothing is deployed here.
+    function resolvePipeline(Config memory cfg)
+        public
+        view
+        returns (LaunchToken token, AdamDistributor distributor, AdamTreasury treasury)
+    {
+        treasury = AdamTreasury(payable(cfg.treasury));
+        distributor = AdamDistributor(address(treasury.distributor()));
+        token = LaunchToken(address(distributor.adam()));
+        if (cfg.adamToken != address(0) && cfg.adamToken != address(token)) {
+            revert PipelineTokenMismatch(cfg.adamToken, address(token));
+        }
+        address legImd = Currency.unwrap(treasury.leg(0).key.currency1);
+        address legPnkstr = Currency.unwrap(treasury.leg(1).key.currency1);
+        if (legImd != cfg.imd) revert PipelineRewardMismatch(0, cfg.imd, legImd);
+        if (legPnkstr != cfg.pnkstr) revert PipelineRewardMismatch(1, cfg.pnkstr, legPnkstr);
+    }
+
     /// @notice Steps 5-6. Must be called by the hook owner holding `cfg.liquidityAdam` ADAM.
     function launchPool(Config memory cfg, Deployment memory d)
         public
@@ -226,6 +267,8 @@ contract DeployAdam is Script {
         }
         if (cfg.initialTick % cfg.tickSpacing != 0 || cfg.lowerTick % cfg.tickSpacing != 0) revert TickNotAligned();
         if (cfg.lowerTick >= cfg.initialTick) revert TickNotAligned();
+        uint256 held = d.token.balanceOf(cfg.deployer);
+        if (held < cfg.liquidityAdam) revert InsufficientAdamForLiquidity(held, cfg.liquidityAdam);
 
         sqrtPriceX96 = TickMath.getSqrtPriceAtTick(cfg.initialTick);
         IPoolManager(cfg.poolManager).initialize(d.key, sqrtPriceX96);
