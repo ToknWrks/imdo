@@ -12,6 +12,7 @@ import {SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/types/Pool
 /// @notice Local stand-in for the (unverified) PNKSTR hook: afterSwap + afterSwapReturnDelta, taking
 /// `taxBps` of the unspecified currency on exact-input buys (the output token), kept by the hook.
 /// `setTaxBps` lets tests simulate the hook raising its tax, and `setRevertSwaps` a dead pool.
+/// @custom:x https://x.com/IaMaDamIMD
 contract MockTaxHook is IHooks {
     IPoolManager public immutable poolManager;
     uint256 public taxBps;

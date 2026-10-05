@@ -21,6 +21,7 @@ import {IAdamDistributor} from "./interfaces/IAdamDistributor.sol";
 ///
 /// Trust model: no owner, no upgrade, no sweep. Anyone may call `notifyReward` for a configured reward
 /// token (it only ever adds rewards). The excluded set is fixed at construction.
+/// @custom:x https://x.com/IaMaDamIMD
 contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -33,7 +34,7 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
 
     IERC20 public immutable adam;
 
-    address[] private _rewardTokens;
+    address[] internal _rewardTokens;
     mapping(address token => bool) public isRewardToken;
     /// @notice Addresses that may never stake (pool manager, token, this contract, zero, dead, ...).
     mapping(address account => bool) public isExcluded;
@@ -134,6 +135,11 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
         _claim(msg.sender);
     }
 
+    /// @notice ERC-7572 immutable contract metadata.
+    function contractURI() external pure returns (string memory) {
+        return 'data:application/json,{"name":"ADAM Distributor","external_link":"https://x.com/IaMaDamIMD"}';
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Reward intake
     // ---------------------------------------------------------------------------------------------
@@ -169,7 +175,7 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
     // Internals
     // ---------------------------------------------------------------------------------------------
 
-    function _distribute(address token, uint256 amount) private returns (uint256 distributed) {
+    function _distribute(address token, uint256 amount) internal returns (uint256 distributed) {
         _releaseBacklog(token);
         if (totalStaked == 0) {
             unallocated[token] += amount;
@@ -192,13 +198,13 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
         adam.safeTransfer(msg.sender, amount);
     }
 
-    function _claim(address account) private {
+    function _claim(address account) internal {
         _settle(account);
         uint256 n = _rewardTokens.length;
         for (uint256 i; i < n; ++i) {
             address token = _rewardTokens[i];
             uint256 amount = rewardsAccrued[token][account];
-            if (amount == 0) continue;
+            if (amount == 0 || token == address(0)) continue;
             rewardsAccrued[token][account] = 0;
             totalClaimed[token] += amount;
             emit RewardClaimed(account, token, amount);
@@ -207,7 +213,7 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
     }
 
     /// @dev Credit everything owed so far at the current accumulator, then checkpoint.
-    function _settle(address account) private {
+    function _settle(address account) internal {
         uint256 n = _rewardTokens.length;
         for (uint256 i; i < n; ++i) {
             address token = _rewardTokens[i];
@@ -246,7 +252,7 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
 
     /// @dev Losing the threshold pauses release. Regaining it restarts the remaining reserve over seven
     /// days; elapsed time below the threshold never vests. Called after settling both tokens.
-    function _syncBacklogStreams() private {
+    function _syncBacklogStreams() internal {
         for (uint256 i; i < _rewardTokens.length; ++i) {
             address token = _rewardTokens[i];
             if (totalStaked < MIN_BACKLOG_STAKE) {

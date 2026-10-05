@@ -10,6 +10,7 @@ import {LaunchToken} from "src/LaunchToken.sol";
 import {AdamDistributor} from "src/AdamDistributor.sol";
 
 /// @dev An external reward token with independently selectable failure modes.
+/// @custom:x https://x.com/IaMaDamIMD
 contract AdversarialReward is ERC20 {
     AdamDistributor public target;
     uint16 public intakeTax;
@@ -82,6 +83,7 @@ contract AdversarialReward is ERC20 {
     }
 }
 
+/// @custom:x https://x.com/IaMaDamIMD
 contract DistributorAdversarialTest is Test {
     LaunchToken internal adam;
     AdversarialReward internal reward0;

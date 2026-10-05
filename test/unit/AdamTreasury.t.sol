@@ -14,6 +14,7 @@ import {AdamTreasury} from "../../src/AdamTreasury.sol";
 import {AdamDistributor} from "../../src/AdamDistributor.sol";
 
 /// @dev Team wallet that refuses ETH until told otherwise.
+/// @custom:x https://x.com/IaMaDamIMD
 contract MoodyWallet {
     bool public accept;
 
@@ -27,6 +28,7 @@ contract MoodyWallet {
 }
 
 /// @dev Team wallet that tries to re-enter the treasury while being paid and records what happened.
+/// @custom:x https://x.com/IaMaDamIMD
 contract ReentrantWallet {
     AdamTreasury public treasury;
     bytes public lastRevert;
@@ -58,6 +60,7 @@ contract ReentrantWallet {
     }
 }
 
+/// @custom:x https://x.com/IaMaDamIMD
 contract AdamTreasuryTest is LocalV4 {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;

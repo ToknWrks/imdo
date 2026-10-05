@@ -35,6 +35,7 @@ import {SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/types/Pool
 ///
 /// Trust model: the owner (Ownable2Step) can lower the fee and is the only account that may initialize the
 /// pool. Nothing else is privileged; the hook never holds funds (every fee is taken straight to Treasury).
+/// @custom:x https://x.com/IaMaDamIMD
 contract AdamHook is IHooks, Ownable2Step {
     using PoolIdLibrary for PoolKey;
     using SafeCast for uint256;

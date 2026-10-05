@@ -10,6 +10,7 @@ import {DeployAdam} from "../../script/DeployAdam.s.sol";
 import {AdamTreasury} from "../../src/AdamTreasury.sol";
 
 /// @notice End-to-end: trades pay ETH fees, process() turns them into IMD + PNKSTR, stakers claim pro-rata.
+/// @custom:x https://x.com/IaMaDamIMD
 contract IntegrationTest is LocalV4 {
     function _buyFor(address who, uint256 ethIn) internal {
         vm.deal(who, who.balance + ethIn);
@@ -95,6 +96,7 @@ contract IntegrationTest is LocalV4 {
 }
 
 /// @notice The deploy script's wiring, exercised exactly as `run()` would call it.
+/// @custom:x https://x.com/IaMaDamIMD
 contract DeployWiringTest is LocalV4 {
     function test_contractsAreWiredTogether() public view {
         assertEq(adam.balanceOf(address(this)) + adam.balanceOf(address(poolManager)), adam.totalSupply());

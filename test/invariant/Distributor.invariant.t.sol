@@ -8,6 +8,7 @@ import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 
 /// @dev Only these four actors own/stake ADAM. Ghost balances are changed from action inputs,
 /// never copied from the distributor's accounting. Rewards use both 6 and 18 decimals.
+/// @custom:x https://x.com/IaMaDamIMD
 contract DistributorHandler is Test {
     LaunchToken public immutable adam;
     AdamDistributor public immutable dist;
@@ -166,6 +167,7 @@ contract DistributorHandler is Test {
 /// forge-config: default.invariant.runs = 256
 /// forge-config: default.invariant.depth = 64
 /// forge-config: default.invariant.fail-on-revert = true
+/// @custom:x https://x.com/IaMaDamIMD
 contract DistributorInvariantTest is Test {
     LaunchToken internal adam;
     AdamDistributor internal dist;

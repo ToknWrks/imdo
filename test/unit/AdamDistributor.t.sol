@@ -10,6 +10,7 @@ import {LaunchToken} from "../../src/LaunchToken.sol";
 import {AdamDistributor} from "../../src/AdamDistributor.sol";
 
 /// @dev Reward token that calls back into the distributor on every transfer out of it.
+/// @custom:x https://x.com/IaMaDamIMD
 contract ReenteringToken is ERC20 {
     AdamDistributor public target;
     bool public armed;
@@ -32,6 +33,7 @@ contract ReenteringToken is ERC20 {
     }
 }
 
+/// @custom:x https://x.com/IaMaDamIMD
 contract AdamDistributorTest is Test {
     LaunchToken internal adam;
     MockERC20 internal imd;

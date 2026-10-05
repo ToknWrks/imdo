@@ -20,23 +20,13 @@ import {AdamHook} from "../src/AdamHook.sol";
 import {HookMiner} from "./utils/HookMiner.sol";
 
 /// @title DeployAdam
-/// @notice Mainnet deployment of the ADAM system. Nothing here is executed by the repository: the deployer runs
-/// it with their own signer (`forge script ... --broadcast --sender <deployer> --ledger` or equivalent).
-///
-/// Steps performed by `run()` (all from the broadcasting account, which must be `DEPLOYER` and the hook owner):
-///   1. deploy LaunchToken (ADAM) unless `ADAM_TOKEN` is set, supply goes to the deployer;
-///   2. deploy AdamDistributor(ADAM, IMD, PNKSTR, PoolManager);
-///   3. deploy AdamTreasury(distributor, team wallet, pools, limits);
-///   4. mine a CREATE2 salt and deploy AdamHook at an address carrying the required flags;
-///   5. initialize the ETH/ADAM pool (owner-only, enforced by the hook);
-///   6. mint the single-sided ADAM position [LOWER_TICK, INITIAL_TICK] through the PositionManager.
-///
-/// Hook-only mode (post-factory launch): when `TREASURY` is set, steps 1-3 are skipped. The ADAM token and the
-/// AdamDistributor are read from that Treasury, the hook is mined and deployed against it, and the hooked pool
-/// is seeded with `LIQUIDITY_ADAM` (the owner's actual allocation; defaults to the full supply). Fees from the
-/// new pool therefore reach the already-deployed Distributor and its stakers.
-///
-/// Every number lives in `mainnetConfig`; tests call `deployContracts` / `launchPool` directly.
+/// @notice Legacy deployment helpers and manual hook-only integration with an existing ADAM Treasury.
+/// @dev The continuation entry point for new application contracts is DeployAdamExtension.run(Config).
+/// This run() requires existing ADAM and Treasury addresses and never mints a token. It mines the
+/// accepted hook, initializes a separate fee-bearing PoolKey, and seeds the owner's chosen liquidity.
+/// deployContracts/launchPool remain available for the accepted local/fork regression fixtures;
+/// their zero-token branch creates only a simulation fixture and is not used by either run() entry point.
+/// @custom:x https://x.com/IaMaDamIMD
 contract DeployAdam is Script {
     using CurrencyLibrary for Currency;
 
@@ -153,19 +143,16 @@ contract DeployAdam is Script {
         cfg.liquidityAdam = LIQUIDITY_ADAM;
     }
 
-    /// @notice Entry point for the manual mainnet deployment. Reads only the deployer-specific values from
-    /// the environment; every protocol constant is in `mainnetConfig`.
-    ///
-    /// Environment: `DEPLOYER`, `TEAM_WALLET` (required); `ADAM_TOKEN` (optional, reuse a token);
-    /// `TREASURY` (optional, hook-only mode against an existing AdamTreasury; `TEAM_WALLET` is then only
-    /// informational because the Treasury already holds the team wallet); `LIQUIDITY_ADAM` (optional, the ADAM
-    /// amount the deployer actually holds and wants in the single-sided position; defaults to the full supply).
+    /// @notice Manual hook-only entry point. Required: DEPLOYER, TEAM_WALLET, ADAM_TOKEN, TREASURY.
+    /// @dev LIQUIDITY_ADAM is the owner's available allocation after funding NFTClaim; choose explicitly.
     function run() external {
         address deployer = vm.envAddress("DEPLOYER");
         address teamWallet = vm.envAddress("TEAM_WALLET");
-        address adamToken = vm.envOr("ADAM_TOKEN", address(0));
+        address adamToken = vm.envAddress("ADAM_TOKEN");
+        require(adamToken != address(0), "Reuse existing ADAM; no new token");
         Config memory cfg = mainnetConfig(deployer, teamWallet, deployer, adamToken);
-        cfg.treasury = vm.envOr("TREASURY", address(0));
+        cfg.treasury = vm.envAddress("TREASURY");
+        require(cfg.treasury != address(0), "DeployAdamExtension deploys the application");
         cfg.liquidityAdam = vm.envOr("LIQUIDITY_ADAM", LIQUIDITY_ADAM);
 
         vm.startBroadcast();

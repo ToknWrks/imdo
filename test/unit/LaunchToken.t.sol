@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {LaunchToken} from "../../src/LaunchToken.sol";
 
+/// @custom:x https://x.com/IaMaDamIMD
 contract LaunchTokenTest is Test {
     LaunchToken internal token;
 

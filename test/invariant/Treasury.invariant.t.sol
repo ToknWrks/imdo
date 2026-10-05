@@ -9,6 +9,7 @@ import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 import {AdamTreasury} from "src/AdamTreasury.sol";
 import {AdamDistributor} from "src/AdamDistributor.sol";
 
+/// @custom:x https://x.com/IaMaDamIMD
 contract InvariantTeamWallet {
     bool public accepting;
 
@@ -22,6 +23,7 @@ contract InvariantTeamWallet {
 }
 
 /// @dev Uses the real local v4 PoolManager. No storage writes or balance cheats on custody contracts.
+/// @custom:x https://x.com/IaMaDamIMD
 contract TreasuryHandler is Test {
     AdamTreasury public immutable treasury;
     AdamDistributor public immutable dist;
@@ -171,6 +173,7 @@ contract TreasuryHandler is Test {
 /// forge-config: default.invariant.runs = 256
 /// forge-config: default.invariant.depth = 64
 /// forge-config: default.invariant.fail-on-revert = true
+/// @custom:x https://x.com/IaMaDamIMD
 contract TreasuryInvariantTest is LocalV4 {
     InvariantTeamWallet internal wallet;
     TreasuryHandler internal handler;

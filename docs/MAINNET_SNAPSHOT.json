@@ -1,0 +1,41 @@
+{
+  "chainId": 1,
+  "blockNumber": 26127182,
+  "rpc": "https://ethereum-rpc.publicnode.com",
+  "imdNFT": {
+    "address": "0x0000ec93127baa929e58e97dd0095a2bfb38ec1d",
+    "method": "totalSupply()",
+    "count": 2000,
+    "firstId": 0,
+    "lastId": 1999
+  },
+  "swarmPepe": {
+    "address": "0x999ce0ce8c5f7661e0c74a568ffe27ceb9177bdb",
+    "method": "totalMinted()",
+    "count": 1178,
+    "firstId": 1,
+    "lastId": 1178,
+    "maxSupply": 5000
+  },
+  "imdstr": {
+    "address": "0x80271ce20184e38f4afe90d4ca134304d197aca2",
+    "implementation": "0x7fb856425f164929f023055e8bc40e980b362f61",
+    "poolKey": {
+      "currency0": "0x0000000000000000000000000000000000000000",
+      "currency1": "0x80271ce20184e38f4afe90d4ca134304d197aca2",
+      "fee": 0,
+      "tickSpacing": 60,
+      "hooks": "0x66b05c8eeca9329f7a2332c02ce3855cfab72444"
+    },
+    "poolId": "0x070ea56ac2effba97d3c106602cf0dcdbaac6ad9acccc1ee4bdaa9f59c5af402",
+    "sqrtPriceX96": "155690655154579426188923615936065",
+    "measuredBuyHookTaxBps": 1000,
+    "poolManagerIsDistributor": false,
+    "walletTransferRevert": "0x2f352531",
+    "proof": "test/fork/IMDSTRFork.t.sol: pool storage, liquidity, implementation, hook, EOA receipt and raw Swap event versus net output",
+    "verifiedSource": "https://sourcify.dev/server/v2/contract/1/0x7fb856425f164929f023055e8bc40e980b362f61?fields=abi,sources",
+    "oneEthOutput": "3432834287892671935600222",
+    "oneEthMinOut": "3371166235868870877848721",
+    "oneEthFloorCheck": "Passed at pinned state, after warping forward one day for NFT launch; 1000 bps hook tax, 300 bps execution tolerance."
+  }
+}

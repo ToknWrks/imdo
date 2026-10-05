@@ -13,6 +13,7 @@ import {AdamTreasury} from "../../src/AdamTreasury.sol";
 /// @notice Post-factory launch path: a third party (the launch factory) constructs LaunchToken, AdamDistributor and
 /// AdamTreasury and hands the owner only their allocation. The deploy script then runs in hook-only mode against
 /// that Treasury, and the fees of the hooked pool must reach the Distributor the factory deployed.
+/// @custom:x https://x.com/IaMaDamIMD
 contract PostFactoryHookTest is LocalV4 {
     address internal factory = makeAddr("factory");
     uint256 internal constant OWNER_ALLOCATION = 100_000_000e18;

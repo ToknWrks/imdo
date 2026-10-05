@@ -37,6 +37,7 @@ import {IAdamDistributor} from "./interfaces/IAdamDistributor.sol";
 /// with no gap greater than two hours. Dust waits for more fees and never counts as a failed attempt.
 ///
 /// Trust model: no owner, no upgrade, no withdrawal path for anyone. Every parameter is immutable.
+/// @custom:x https://x.com/IaMaDamIMD
 contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using StateLibrary for IPoolManager;
@@ -78,12 +79,12 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
     uint16 public immutable slippageBps;
     uint32 public immutable cooldown;
 
-    Leg[2] private _legs;
+    Leg[3] internal _legs;
     /// @notice ETH owed to the team because a push failed; anyone can forward it with `payTeam()`.
     uint256 public teamOwed;
     uint64 public lastProcessed;
 
-    bool private _inProcess;
+    bool internal _inProcess;
 
     event Split(uint256 ethProcessed, uint256 teamShare, uint256 holdersShare);
     event TeamPaid(uint256 amount);
@@ -190,7 +191,7 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
 
     /// @notice Split newly received ETH 10/90, buy IMD and PNKSTR with the holders' share and push them to
     /// the distributor. Anyone may call; rate limited by `cooldown`.
-    function process() external nonReentrant {
+    function process() external virtual nonReentrant {
         uint64 availableAt = lastProcessed + cooldown;
         if (block.timestamp < availableAt) revert CooldownActive(availableAt);
 
@@ -217,7 +218,7 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
     }
 
     /// @notice Forward ETH held for the team after a failed push.
-    function payTeam() external nonReentrant {
+    function payTeam() external virtual nonReentrant {
         uint256 amount = teamOwed;
         if (amount == 0) revert NothingOwed();
         teamOwed = 0;
@@ -238,12 +239,17 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
         }
     }
 
+    /// @notice ERC-7572 immutable contract metadata.
+    function contractURI() external pure returns (string memory) {
+        return 'data:application/json,{"name":"ADAM Treasury","external_link":"https://x.com/IaMaDamIMD"}';
+    }
+
     // ---------------------------------------------------------------------------------------------
     // PoolManager callback
     // ---------------------------------------------------------------------------------------------
 
     /// @dev Entered only through `poolManager.unlock` issued by `_executeLeg`.
-    function unlockCallback(bytes calldata data) external returns (bytes memory) {
+    function unlockCallback(bytes calldata data) external virtual returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert NotPoolManager();
         if (!_inProcess) revert NotProcessing();
         (uint8 legId, uint256 ethIn) = abi.decode(data, (uint8, uint256));
@@ -274,7 +280,7 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
     // ---------------------------------------------------------------------------------------------
 
     /// @notice ETH received and not yet split.
-    function unsplitEth() public view returns (uint256) {
+    function unsplitEth() public view virtual returns (uint256) {
         return address(this).balance - teamOwed - _legs[LEG_IMD].pending - _legs[LEG_PNKSTR].pending;
     }
 
@@ -313,7 +319,7 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
         }
     }
 
-    function _executeLeg(uint8 legId) private {
+    function _executeLeg(uint8 legId) internal virtual {
         Leg storage l = _legs[legId];
         uint256 allowedGap = cooldown > MAX_FAILURE_GAP ? cooldown : MAX_FAILURE_GAP;
         if (l.failures != 0 && block.timestamp > uint256(l.lastFailure) + allowedGap) _resetFailures(l);
@@ -353,7 +359,7 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
         }
     }
 
-    function _resetFailures(Leg storage l) private {
+    function _resetFailures(Leg storage l) internal {
         l.failingSince = 0;
         l.lastFailure = 0;
         l.failures = 0;

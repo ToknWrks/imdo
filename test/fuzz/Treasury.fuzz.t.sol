@@ -5,6 +5,7 @@ import {LocalV4} from "../utils/LocalV4.sol";
 import {AdamTreasury} from "../../src/AdamTreasury.sol";
 
 /// @notice Property tests for the Treasury's split accounting and ETH conservation.
+/// @custom:x https://x.com/IaMaDamIMD
 contract TreasuryFuzzTest is LocalV4 {
     uint256 internal constant BPS = 10_000;
 

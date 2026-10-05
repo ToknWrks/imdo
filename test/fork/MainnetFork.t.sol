@@ -22,7 +22,8 @@ import {DeployAdam} from "../../script/DeployAdam.s.sol";
 import {AdamTreasury} from "../../src/AdamTreasury.sol";
 
 /// @notice Mainnet-fork checks against the real PoolManager, PositionManager, IMD pool and PNKSTR pool.
-/// Excluded from the default profile; the fork profile skips unless MAINNET_RPC_URL is configured.
+/// Excluded from the default profile; run explicitly with the fork profile (no environment reads).
+/// @custom:x https://x.com/IaMaDamIMD
 contract MainnetForkTest is Test {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -42,12 +43,7 @@ contract MainnetForkTest is Test {
     receive() external payable {}
 
     function setUp() public {
-        string memory rpc = vm.envOr("MAINNET_RPC_URL", string(""));
-        if (bytes(rpc).length == 0) {
-            vm.skip(true);
-            return;
-        }
-        vm.createSelectFork(rpc, 26_126_549);
+        vm.createSelectFork("https://mainnet.gateway.tenderly.co", 26_126_549);
         script = new DeployAdam();
         pm = IPoolManager(script.POOL_MANAGER());
         swapRouter = new PoolSwapTest(pm);

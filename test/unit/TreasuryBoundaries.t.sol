@@ -6,6 +6,7 @@ import {AdamTreasury} from "src/AdamTreasury.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 
+/// @custom:x https://x.com/IaMaDamIMD
 contract CallbackTeamWallet {
     AdamTreasury public treasury;
     bool public rejecting = true;
@@ -36,6 +37,7 @@ contract CallbackTeamWallet {
 }
 
 /// @notice Boundary regressions supplement the accepted suites without changing their fixtures.
+/// @custom:x https://x.com/IaMaDamIMD
 contract TreasuryBoundariesTest is LocalV4 {
     function _fund(AdamTreasury target, uint256 amount) private {
         (bool ok,) = address(target).call{value: amount}("");

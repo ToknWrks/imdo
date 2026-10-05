@@ -1,83 +1,77 @@
-# ADAM contracts
+# ADAM
 
-ADAM is a plain, non-upgradeable ERC-20: 1,000,000,000 tokens, 18 decimals, minted once to its deployer. `AdamHook` collects native ETH from trades in its one ETH/ADAM Uniswap v4 pool. Anyone can call `AdamTreasury.process()`: 10% goes to the immutable team wallet and the remaining ETH is split equally between IMD and PNKSTR buys. `AdamDistributor` holds those rewards for pull-based claims by ADAM **stakers**.
+Official X: **https://x.com/IaMaDamIMD**
 
-This revision preserves the accepted staking architecture. Deployment has not been broadcast. All dependencies are ordinary files in `lib/`; the default tests need no network or environment variables. Solidity is pinned to **0.8.26**, Cancun, with metadata hashes disabled and FFI disabled.
+Plain ERC-20 **ADAM**, fixed 1,000,000,000 supply; staking, fee hook, immutable Treasury, NFT claims and three reward assets. Nothing was broadcast by this work. No token was redeployed or re-minted. The accepted hook still charges ETH on buys/sells, decaying from 20% to 1.5% over the first 30 minutes of trading; its owner may only lower the final fee.
+
+## Existing deployment and this continuation
+
+The supplied deployment record is **Sepolia (11155111)**: ADAM `0x9a9d76ff61aaa11344f43915c16c58a7ca04bc42`, Distributor `0x77d42237c9273bf0bcc5aacbb315edcf0b132041`, Treasury `0x747588e4b4e0808f6029e768589e193605f4ce18`. These contracts remain unchanged onchain. They do **not** acquire this source revision's features. Build the original commit's ABIs for the original deployment, not these revised artifacts.
+
+The requested NFTs and IMD/PNKSTR/IMDSTR pools are **Ethereum mainnet** contracts. No verified existing mainnet ADAM address was supplied. This repository supplies tested extensions and a manual deployment script; it does not invent a cross-chain token, bridge Sepolia funds, or mint a replacement. A production activation needs a reviewed same-chain deployment configuration and an existing ADAM balance of at least 110,000,000. The mainnet preset intentionally requires an existing token address; passing the known Sepolia address on mainnet fails validation.
+
+Legacy `AdamDistributor` and `AdamTreasury` behavior and the original regression suites remain available. New deployments use `AdamDistributorV2`, `AdamTreasuryV2`, `AdamSplitOracle`, and `NFTClaim`. Shared legacy code received only extension access points and immutable ERC-7572 metadata; token/hook economics remain intact. The [parent README](docs/LEGACY_README.md) is historical context, including its factory/custom-hook limitation.
+
+## NFT allocation and claims
+
+`NFTClaim` is funded with **110,000,000 existing ADAM**:
+
+| Collection | Allocation | Frozen count | Eligible token IDs | Full share per NFT |
+|---|---:|---:|---|---:|
+| IMD `0x0000ec93127baa929e58e97dd0095a2bfb38ec1d` | 100,000,000 | 2,000 | 0–1,999 | 50,000 ADAM |
+| Swarm Pepe `0x999ce0ce8c5f7661e0c74a568ffe27ceb9177bdb` | 10,000,000 | 1,178 | 1–1,178 | floor(10,000,000e18 / 1,178) atomic units |
+
+Counts were read onchain at mainnet block **26,127,182**. Swarm Pepe exposes `totalMinted()`, not `totalSupply()`, and may mint beyond this snapshot: later IDs are ineligible. IMD was fully minted. Both ranges and counts are immutable at construction; [snapshot evidence](docs/MAINNET_SNAPSHOT.json) records the reads. The deploy script rechecks that the deployment chain's minted counts cover the frozen ranges.
+
+At the configured `launch` timestamp each tokenId unlocks 10% of its share, then another 10% every 24 hours: day 0 = 10%, day 1 = 20%, … day 9 = 100%. Claims close at **launch + 39 days** (full unlock + 30 days). Integer rounding is less than one atomic unit per vesting calculation; allocation division dust remains for the final burn.
+
+- Current `ownerOf(tokenId)` calls `claim(collection, tokenIds)` or `claimAndStake(collection, tokenIds)`, where collection 0 is IMD and 1 is Swarm Pepe. Two collections need two calls. Approved operators cannot claim another owner's allocation.
+- Batches atomically validate ownership. Repeated IDs cannot claim twice. Selling an NFT transfers its future/unclaimed entitlement; amounts already claimed stay recorded against the ID.
+- `claimAndStake` credits ADAM stake to the claimant with an exact, cleared allowance. NFTClaim is permanently excluded from earning staking rewards.
+- At the deadline anyone can call `burnUnclaimed()` to transfer the remaining ADAM, including burned/unclaimed NFT entitlements and dust, to `0x000000000000000000000000000000000000dEaD`. It does not reduce ERC-20 totalSupply. No administrator can withdraw funds or alter parameters.
+
+The NFT launch time is an explicit deployment parameter, independent of the hook's first-filled-swap clock. Choose it in the future and fund before it. Existing holders must fund this allocation; the script never takes tokens from old pools or old stakers.
+
+## Staking and rewards
+
+Approve V2 Distributor and `stake(amount)`. `unstake(amount)` always returns principal without forcing reward claims. Fresh rewards accrue pro rata to current stake. No-stake rewards, including IMDSTR ETH, retain the original seven-day backlog stream, gated by at least 10,000,000 staked ADAM; falling below the threshold pauses it. Just-in-time staking of fresh rewards remains possible.
+
+- `claim()` pulls IMD, PNKSTR and any transferable direct-mode IMDSTR. `exit()` also withdraws all principal. Neither silently buys IMDSTR with an arbitrary slippage tolerance.
+- `earned(wallet, address(0))` is the wallet's **ETH budget for IMDSTR**, not withdrawable native ETH. Call `claimIMDSTR(ethAmount, minOut, deadline)` to spend up to the per-claim cap (default 1 ETH). Supply a nonzero minimum output and an unexpired deadline; the v4 PoolManager takes tokens **directly to msg.sender**. Failed/partial swaps revert without consuming the claim. Repeat for a larger budget.
+- `earned(wallet, token)` reports token rewards. `claimReward(token)` pulls an individual asset, so one locked reward cannot block other rewards or principal.
+- If the IMDSTR owner whitelists the Distributor using `setDistributor(distributor, true)`, anyone may call `enableDirectDistribution()` **once**. New IMDSTR budgets then buy directly into the Distributor and accrue as tokens. Old ETH claims retain their denomination and buy-on-claim path. The switch is irreversible; the external token owner can revoke the whitelist or upgrade the proxy, which can lock direct IMDSTR rewards until permissions recover.
+
+IMDSTR pool: native ETH / `0x80271ce20184e38f4afe90d4ca134304d197aca2`, fee **0**, spacing **60**, hook `0x66b05c8eeca9329f7a2332c02ce3855cfab72444`; measured **10% output tax**, in addition to any price impact. PoolManager is not a whitelisted distributor. Mainnet fork tests demonstrate EOA receipt, the `InvalidTransfer()` wallet-transfer failure, and direct mode after a simulated owner whitelist.
+
+## Fee processing and signed splits
+
+Anyone calls V2 Treasury `process()`, normally hourly (minimum cooldown 600 seconds). The caller gets **0.5% of newly processed ETH**, once. The remaining 99.5% is split **90% holders / 10% team**. Example: 1 ETH → 0.005 ETH bounty, 0.0995 ETH team, 0.8955 ETH holders. Bounty is charged on new allocation, even if a buy is deferred; retries/reroutes never earn another bounty. A rejecting caller accrues a reserved `keeperOwed` balance and can pull it with `claimKeeper(recipient)`. The team itself calls `payTeam()`. Staker tokens are always pulled by their owners.
+
+Holder allocations use the newest valid IMD Oracle v2 report. Immutable signer and canonical questionHash; 26-hour maximum age; signature, domain, reason hash, panel quorum, expiry and replay checks; weights clamped to **1500–7000 bps each**, summing to 10000. Missing/stale reports give **3333/3333/3334** (last wei goes to IMDSTR). Invalid submissions cannot evict a still-valid signed report. The effective split emits `SplitUpdated(imdBps,pnkstrBps,imdstrBps,reportId,reasonHash,source)` from AdamSplitOracle on processing. `source=0` is fallback, `source=1` is signed. The daily policy favors the weakest 24-hour performer unless liquidity/risk signals intervene; see the complete [heartbeat specification and prompt](docs/HEARTBEAT.md).
+
+All three legs retain independent 1 ETH attempt caps, 3% slippage floors below the greater of checkpoint and spot output after pool fees/hook tax, halving retries down to 1 gwei, and rerouting only after at least four failures spanning three days, without gaps over two hours (or configured cooldown if longer). Dust waits. Rerouting prefers a healthy alternate leg and can change the eventual mix. IMDSTR normally **accrues ETH without swapping**; its automatic swap/floor/retry logic applies once direct mode is enabled. An already-accrued user's ETH cannot be seized or rerouted: they can retry their own claim with suitable slippage if that pool recovers.
+
+Every leg's swap **and** reward notification share an atomic failure boundary. Checkpoints move only after actual successful buys; ETH accrual does not move the IMDSTR checkpoint. These floors are circuit breakers, not independent price oracles; sustained adverse price moves can defer trades. The external oracle signs allocation weights, not execution prices. Use private transaction submission and realistic minOut values for claims.
+
+## Deployment and operation
+
+`script/DeployAdamExtension.s.sol` accepts a complete `Config` as arguments; no secrets, environment reads, FFI or filesystem cheatcodes. `mainnetConfig(existingAdam, deployer, team, launch, questionHash)` supplies the observed mainnet defaults. `run(Config)` records the reviewed actions for a manual signer; without an explicit user-run `--broadcast`, Foundry only simulates. This assignment ran tests/simulations only.
+
+The script validates chain/token identity and fixed supply, checks the funding balance and NFT counters, deploys the oracle and V2 Distributor, predicts/excludes NFTClaim's CREATE address, deploys NFTClaim and V2 Treasury, and funds exactly 11%. The unit suite calls both `deploy(Config)` and `run(Config)` directly with explicit creators. A separate funder must approve exactly 110,000,000 ADAM; when creator=funder the signer transfers its own tokens directly. All components are immutable, so review constructor data and code before funding. Script execution is multiple manual transactions: after any interruption, inspect deployed contracts and completed transfers before resuming.
+
+The old hook's Treasury is immutable. The new Treasury does not take over existing fees automatically. To activate a new fee-bearing pool without changing ADAM, the original `DeployAdam` **hook-only** path accepts the new V2 Treasury in `TREASURY` and the existing token in mandatory `ADAM_TOKEN`; it mines the same AdamHook and can seed a reviewed, ADAM-only position from the owner's remaining balance. The NFT allocation must be reserved first (at most 890,000,000 of the original supply remains for all other uses). Existing pools/positions remain untouched. No custom pool or liquidity migration was executed here. Frontends/routers must explicitly use the new hooked PoolKey; the factory pool and other hookless pools do not pay these fees.
+
+The deployer records final addresses/PoolKeys and ABIs, verifies code, confirms oracle signer/canonical questionHash and service consumer domain, chooses claim launch time and team beneficiary, funds the heartbeat, and arranges keeper calls. IMDSTR whitelist authority remains with its external token owner. An independent adversarial review remains required before release with real funds. Distributor/Treasury expose immutable ERC-7572 `contractURI()` data URIs; ADAM remains a plain ERC-20. First-party contracts include `@custom:x`.
+
+## Verification
 
 ```sh
 forge build
 forge test
 forge fmt --check
-FOUNDRY_PROFILE=fork forge test -vv
+FOUNDRY_PROFILE=fork forge test -vv --threads 1 --compute-units-per-second 50
 ```
 
-The last command uses the public RPC in `test/fork/MainnetFork.t.sol` and Ethereum block **26,126,549**. The fork profile is deliberately separate from offline default verification. It tests the real PoolManager, PositionManager and both reward pools. The reviewer proofs were validated unchanged in `test/scratch/`; permanent regressions are in `test/unit/Revision.t.sol` and the existing unit suites.
+Default tests run offline with the existing pinned **Solidity 0.8.26**, dependencies and Foundry configuration. Fork tests are explicitly separated by the existing profile and use public RPC plus pinned blocks; no tests read/set environment variables. The fork suites use public Nodies/Tenderly archive endpoints and fail visibly on network failure. No dependencies or build configuration changed.
 
-**Deployment parameters.** `DeployAdam.mainnetConfig(deployer, teamWallet, hookOwner, adamToken)` defines the exact configuration. For `run()`, hookOwner equals DEPLOYER; `ADAM_TOKEN` is optional (zero deploys a new token). The deployer chooses the team wallet and signer addresses. No private keys belong in this repository.
-
-The script has two modes, selected by the `TREASURY` environment variable:
-
-| Mode | Environment | What `run()` deploys |
-| --- | --- | --- |
-| Fresh | `DEPLOYER`, `TEAM_WALLET`, optional `ADAM_TOKEN`, optional `LIQUIDITY_ADAM` | LaunchToken (unless given), AdamDistributor, AdamTreasury, AdamHook, pool, LP position |
-| Hook-only (post-factory) | `DEPLOYER`, `TEAM_WALLET`, `TREASURY`, `LIQUIDITY_ADAM` | AdamHook against the existing Treasury, pool, LP position |
-
-Hook-only mode is the path for a factory launch: the factory constructs LaunchToken, AdamDistributor and AdamTreasury from the manifest, and the owner then runs the script with `TREASURY` set to the factory-deployed Treasury. The script reads the ADAM token and the Distributor from that Treasury (`resolvePipeline`), refuses a Treasury whose reward legs are not IMD and PNKSTR, mines the hook against the existing Treasury, and seeds the hooked pool with `LIQUIDITY_ADAM`, which must be the allocation the deployer actually holds (the script reverts with `InsufficientAdamForLiquidity` otherwise). Fees from the hooked pool then reach the Distributor stakers already use; `test/unit/PostFactoryHook.t.sol` exercises exactly this path against a third-party-built pipeline, including a buy, `process()` and a claim. The factory's own hookless pool never pays these fees.
-
-| Parameter | Value |
-| --- | --- |
-| PoolManager | `0x000000000004444c5dc75cB358380D2e3dE08A90` |
-| PositionManager | `0xbD216513d74C8cf14cf4747E6AaA6420FF64ee9e` |
-| Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
-| CREATE2 deployer | `0x4e59b44847b379578588920cA78FbF26c0B4956C` |
-| IMD | `0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7` |
-| PNKSTR | `0xc50673EDb3A7b94E8CAD8a7d4E0cD68864E33eDF` |
-| PNKSTR hook | `0xfAaad5B731F52cDc9746F2414c823eca9B06E844` |
-| ETH/IMD PoolKey | `(address(0), IMD, 10000, 200, address(0))` |
-| ETH/PNKSTR PoolKey | `(address(0), PNKSTR, 0, 60, PNKSTR_HOOK)` |
-| ETH/ADAM PoolKey | `(address(0), ADAM, 0, 60, newly mined AdamHook)` |
-| Treasury limits | 1 ETH per leg, 300 bps slippage, 600 seconds cooldown |
-| Assumed reward hook buy taxes | IMD: 0 bps; PNKSTR: 1000 bps of output |
-| ADAM opening tick / LP range | `177240` / `[108180, 177240]` |
-| Default liquidity allocation | `1_000_000_000e18` ADAM; 0 ETH |
-
-Constructor order and exact arguments (the symbols above resolve to the table or prior deployments):
-
-```text
-LaunchToken()
-AdamDistributor(ADAM, IMD, PNKSTR, POOL_MANAGER, address(0))
-AdamTreasury(Distributor, teamWallet, POOL_MANAGER,
-             IMD, 10000, 200, address(0), 0,
-             PNKSTR, 0, 60, PNKSTR_HOOK, 1000,
-             1000000000000000000, 300, 600)
-AdamHook(POOL_MANAGER, ADAM, Treasury, hookOwner)
-```
-
-The IMD key hashes to pool ID `0xb07d640fd9e2eb9dc81b953c8e4fd006bdfeaf276010fb5418eb763ca15abfb3`; successful real-pool swaps in the fork verify that key.
-
-Before signing, independently check both reward pools' prices and liquidity. Treasury checkpoints their prices in its constructor; the pools must already exist. A missing pool/manager leaves a zero checkpoint and that leg fails closed. There is no administrative price reset. Use the fork run to verify that both 1 ETH buys satisfy their floors at deployment time; do not treat the pinned block as current market validation.
-
-Manual deployment steps:
-
-1. Review the configuration and select DEPLOYER and TEAM_WALLET in the signing session. After a factory launch, set TREASURY to the factory-deployed AdamTreasury and LIQUIDITY_ADAM to the ADAM amount the deployer actually holds (ADAM_TOKEN is then optional and only cross-checked). Without TREASURY the script deploys the whole pipeline; LIQUIDITY_ADAM defaults to the full supply, which leaves only fixed-point rounding dust in the deployer's wallet.
-2. Simulate `forge script script/DeployAdam.s.sol:DeployAdam --rpc-url <mainnet-rpc> --sender <deployer>` with those environment values. Review every transaction and resulting address. The script's `run()` reads environment variables; the tests call its configuration/deployment functions directly.
-3. Only the human deployer signs/broadcasts the reviewed transactions, for example using the same command with `--broadcast --ledger`. No transaction was signed or sent during this assignment. Gas requires ETH, even though liquidity funding does not.
-4. In fresh mode the script deploys the token, distributor and treasury; in hook-only mode it reads them from TREASURY. It then mines and deploys the hook using CREATE2. Its low 14 address bits must equal **0x20cc** (beforeInitialize, beforeSwap, afterSwap and both swap-return-delta flags). Re-mine for the actual init code, owner, treasury and CREATE2 deployer; an old salt/address cannot be reused blindly.
-5. The hook owner initializes the ADAM PoolKey at `TickMath.getSqrtPriceAtTick(177240)`. The script approves ADAM to Permit2, grants PositionManager a bounded allowance, and mints the LP NFT with `amount0Max = 0`, `amount1Max = liquidityAdam`, lower tick 108180 and upper tick 177240. Deadlines/allowances last one hour in the generated calls; re-simulate delayed signing sessions. The NFT goes to the deployer, who controls liquidity withdrawal.
-6. Record the exact PoolKey, contracts, salt and LP NFT. Verify sources and constructor arguments on the explorer. Optional hook ownership transfer uses `transferOwnership` then `acceptOwnership`; renouncing before initialization would make initialization impossible.
-
-ETH is currency0 and ADAM currency1, so tick price is ADAM per ETH. An ADAM-only position is at/below the current tick; expressed as ETH per ADAM, that range is above the opening price. The initial position sits at its upper tick, costs zero ETH and becomes active as buys move the tick down. It initially offers no ETH for sells.
-
-**Fees and operation.** The first nonempty, successful swap starts the 30-minute anti-snipe clock at 20%. It decays linearly to 1.5%; the owner can only reduce the final rate. A reverted/empty swap cannot start the clock. Exact-output fees are grossed up using `net * bps / (10000 - bps)`, rounded down; exact-input fees use the gross ETH amount. Exact-input buys and exact-output sells must fill completely: price limits and exhausted liquidity that prevent a full fill revert the entire swap and its fee. The other two paths tax actual ETH deltas.
-
-Run `process()` hourly using any funded keeper. There is no keeper bounty. Maximum new fees split per call are `floor(2e18 * 10000 / 9000)` wei (about 2.222 ETH), with at most 1 ETH bought per token; the rest waits unsplit. A failed team push records `teamOwed`; anyone may retry `payTeam()`, which always pays the configured wallet. `flushRewards()` forwards donated reward tokens to the distributor.
-
-Each buy uses the greater of its stored checkpoint price and current spot price, less pool fees, configured output tax and the 3% slippage allowance. Successful buys refresh the checkpoint to the final pool price. Failed buys keep ETH pending and halve the next attempt, down to 1 gwei. Success restores the 1 ETH cap. Smaller pending amounts accumulate without being treated as failures. Rerouting requires at least four failed attempts spanning three days, with no gap exceeding two hours (or the configured cooldown if longer). Longer gaps or successful buys reset the streak. Keep hourly calls going during an outage; monitor `LegFailed`, `LegBought`, `LegRerouted` and pending balances. Rerouting changes the eventual reward mix from 50/50.
-
-At block 26,126,549, a 0.01 ETH PNKSTR buy produced 1,694.207736324191102696 PNKSTR before the hook and 1,524.786962691771992427 after it: exactly 10% output tax rounded down. The spot-relative shortfall rounds up to 1001 bps because it includes price impact. The unverified hook immediately sells its collected tax; its final token balance is not a tax measurement. The fork test checks the original PoolManager Swap event against the buyer delta and checks the actual received balance. This supports the 1000 bps tax parameter, with the separate 300 bps allowance covering impact/slippage. Future hook behavior remains an external dependency.
-
-To earn and claim: approve Distributor for the desired ADAM amount, call `stake(amount)`, then call `claim()` for both tokens. `unstake(amount)` returns ADAM and preserves accrued rewards; `exit()` returns all remaining stake and claims, including when already fully unstaked. Rewards received with no stake are parked. They stream over seven days only while at least 10,000,000 ADAM (1% of supply) is staked. Dropping below that threshold pauses release; regaining it restarts the remaining reserve over seven days. No elapsed time below the threshold vests. New stakes never earn already elapsed stream time. Ordinary new rewards remain immediate pro-rata distributions to current stakers.
-
-**What differs from the brief.** Unstaked wallet balances earn nothing; ordinary ERC-20 transfers do not update the distributor. The brief asks for dividends "pro-rata to balance, updated on transfer", which needs the token to notify the distributor on every transfer. The launch rules this project is built under require LaunchToken to be a plain ERC-20 whose transfers do nothing else, and they state that a token with extra behaviour is refused and that the README must list what the brief asked for that the token does not do. This is that item. A distributor that pays plain-token wallet balances without a transfer hook cannot tell a long-term holder from a wallet that just received already-claimed tokens, so a holder could claim, move the tokens to a fresh wallet and claim again at other holders' expense; that design was rejected rather than shipped. Staking (1:1, no lock, no fee, withdrawable at any time) is the closest secure substitute and preserves the accepted plain launch token. New reward notifications use instantaneous stake: just-in-time staking remains possible, and a sole staker receives all newly notified rewards. The backlog threshold/stream addresses the launch-pot attack, not that general snapshot-economics choice. Only the exact hooked PoolKey pays these fees; a factory-created or hookless ADAM pool does not.
-
-The fixed exclusion set is zero, dead, Distributor, ADAM, PoolManager, both reward tokens and the optional extra address. V4 pools have no separate custody address; PoolManager covers pool-held tokens. The script passes zero for the extra address. Hook and Treasury are not explicit exclusions, but neither has any path to approve/stake ADAM or execute arbitrary calls. This informational deviation is retained and tested; no new exclusion administrator was added. Neither Treasury nor Distributor has an owner, sweep, upgrade or holder-fund withdrawal power. See `SELF_AUDIT.md` for limits of the review and `.imd-responses.json` for every finding's disposition.
+See [test coverage](test/TESTING.md), [self-audit](SELF_AUDIT.md), and [mainnet evidence](docs/MAINNET_SNAPSHOT.json).

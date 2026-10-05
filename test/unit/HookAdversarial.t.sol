@@ -11,6 +11,7 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 
+/// @custom:x https://x.com/IaMaDamIMD
 contract HookAdversarialTest is LocalV4 {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
