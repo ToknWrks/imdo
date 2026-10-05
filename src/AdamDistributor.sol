@@ -26,6 +26,9 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
 
     /// @dev Scaling factor for the per-share accumulator.
     uint256 private constant MAGNITUDE = 2 ** 128;
+    uint256 public constant BACKLOG_DURATION = 7 days;
+    /// @notice Backlog streams only while at least 1% of the fixed ADAM supply is staked.
+    uint256 public constant MIN_BACKLOG_STAKE = 10_000_000e18;
     address private constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
     IERC20 public immutable adam;
@@ -40,8 +43,15 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
 
     /// @notice Accumulated reward per staked ADAM, scaled by MAGNITUDE.
     mapping(address token => uint256) public rewardPerShare;
-    /// @notice Rewards received while nobody was staked; folded into the next distribution.
+    /// @notice Undistributed launch/empty-stake rewards, released through a gated seven-day stream.
     mapping(address token => uint256) public unallocated;
+
+    struct BacklogStream {
+        uint256 amount;
+        uint256 released;
+        uint64 start;
+    }
+    mapping(address token => BacklogStream) public backlogStream;
     /// @notice Lifetime amount of each token credited to stakers (excludes `unallocated`).
     mapping(address token => uint256) public totalDistributed;
     /// @notice Lifetime amount of each token paid out by `claim`.
@@ -102,6 +112,7 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
         _settle(msg.sender);
         stakedBalance[msg.sender] += amount;
         totalStaked += amount;
+        _syncBacklogStreams();
         emit Staked(msg.sender, amount);
         adam.safeTransferFrom(msg.sender, address(this), amount);
     }
@@ -118,7 +129,8 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
 
     /// @notice Withdraw all staked ADAM and claim every reward in one call.
     function exit() external nonReentrant {
-        _unstake(stakedBalance[msg.sender]);
+        uint256 balance = stakedBalance[msg.sender];
+        if (balance != 0) _unstake(balance);
         _claim(msg.sender);
     }
 
@@ -158,12 +170,12 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
     // ---------------------------------------------------------------------------------------------
 
     function _distribute(address token, uint256 amount) private returns (uint256 distributed) {
+        _releaseBacklog(token);
         if (totalStaked == 0) {
             unallocated[token] += amount;
             return 0;
         }
-        distributed = amount + unallocated[token];
-        unallocated[token] = 0;
+        distributed = amount;
         rewardPerShare[token] += FullMath.mulDiv(distributed, MAGNITUDE, totalStaked);
         totalDistributed[token] += distributed;
     }
@@ -175,6 +187,7 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
         _settle(msg.sender);
         stakedBalance[msg.sender] = staked - amount;
         totalStaked -= amount;
+        _syncBacklogStreams();
         emit Unstaked(msg.sender, amount);
         adam.safeTransfer(msg.sender, amount);
     }
@@ -198,6 +211,7 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
         uint256 n = _rewardTokens.length;
         for (uint256 i; i < n; ++i) {
             address token = _rewardTokens[i];
+            _releaseBacklog(token);
             uint256 owed = _pending(account, token);
             if (owed != 0) rewardsAccrued[token][account] += owed;
             rewardPerSharePaid[token][account] = rewardPerShare[token];
@@ -208,6 +222,38 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
         uint256 staked = stakedBalance[account];
         if (staked == 0) return 0;
         uint256 delta = rewardPerShare[token] - rewardPerSharePaid[token][account];
+        if (totalStaked != 0) delta += FullMath.mulDiv(_backlogDue(token), MAGNITUDE, totalStaked);
         return FullMath.mulDiv(staked, delta, MAGNITUDE);
+    }
+
+    function _backlogDue(address token) private view returns (uint256) {
+        BacklogStream storage stream = backlogStream[token];
+        if (stream.amount == 0 || totalStaked < MIN_BACKLOG_STAKE) return 0;
+        uint256 elapsed = block.timestamp - stream.start;
+        if (elapsed > BACKLOG_DURATION) elapsed = BACKLOG_DURATION;
+        return FullMath.mulDiv(stream.amount, elapsed, BACKLOG_DURATION) - stream.released;
+    }
+
+    /// @dev Always checkpoint before stake changes: newcomers cannot earn past stream time.
+    function _releaseBacklog(address token) private {
+        uint256 amount = _backlogDue(token);
+        if (amount == 0) return;
+        backlogStream[token].released += amount;
+        unallocated[token] -= amount;
+        rewardPerShare[token] += FullMath.mulDiv(amount, MAGNITUDE, totalStaked);
+        totalDistributed[token] += amount;
+    }
+
+    /// @dev Losing the threshold pauses release. Regaining it restarts the remaining reserve over seven
+    /// days; elapsed time below the threshold never vests. Called after settling both tokens.
+    function _syncBacklogStreams() private {
+        for (uint256 i; i < _rewardTokens.length; ++i) {
+            address token = _rewardTokens[i];
+            if (totalStaked < MIN_BACKLOG_STAKE) {
+                delete backlogStream[token];
+            } else if (backlogStream[token].amount == 0 && unallocated[token] != 0) {
+                backlogStream[token] = BacklogStream(unallocated[token], 0, uint64(block.timestamp));
+            }
+        }
     }
 }

@@ -213,6 +213,7 @@ abstract contract LocalV4 is Test {
     }
 
     function warpPastDecay() internal {
+        if (hook.launchTimestamp() == 0) buyExactIn(1); // starts trading without a rounded ETH fee
         vm.warp(uint256(hook.launchTimestamp()) + hook.DECAY_DURATION());
     }
 

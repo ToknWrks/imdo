@@ -189,7 +189,7 @@ contract AdamDistributorTest is Test {
         assertEq(dist.earned(bob, address(imd)), 150e18);
     }
 
-    function test_rewardsBeforeAnyStakeAreHeldThenFoldedIn() public {
+    function test_rewardsBeforeAnyStakeWaitForMeaningfulStake() public {
         dist.notifyReward(address(imd), 500e18);
         assertEq(dist.unallocated(address(imd)), 500e18);
         assertEq(dist.totalDistributed(address(imd)), 0);
@@ -197,8 +197,8 @@ contract AdamDistributorTest is Test {
         _stake(alice, 100e18);
         assertEq(dist.earned(alice, address(imd)), 0, "not credited until the next notify");
         dist.notifyReward(address(imd), 100e18);
-        assertEq(dist.unallocated(address(imd)), 0);
-        assertEq(dist.earned(alice, address(imd)), 600e18);
+        assertEq(dist.unallocated(address(imd)), 500e18);
+        assertEq(dist.earned(alice, address(imd)), 100e18);
     }
 
     function test_notifyRejectsUnknownTokenAndZero() public {
@@ -330,5 +330,94 @@ contract AdamDistributorTest is Test {
         dist.unstake(part);
         assertEq(dist.stakedBalance(alice), amount - part);
         assertEq(adam.balanceOf(alice) + dist.stakedBalance(alice), 1_000e18);
+    }
+
+    function test_exitAfterUnstakeStillClaims() public {
+        _stake(alice, 100e18);
+        dist.notifyReward(address(imd), 10e18);
+        vm.startPrank(alice);
+        dist.unstake(100e18);
+        dist.exit();
+        dist.exit(); // repeated settlement is a no-op
+        vm.stopPrank();
+        assertApproxEqAbs(imd.balanceOf(alice), 10e18, 1);
+        assertEq(dist.earned(alice, address(imd)), 0);
+    }
+
+    function test_dustCannotCaptureBacklogEvenAfterWaiting() public {
+        dist.notifyReward(address(imd), 1_000e18);
+        dist.notifyReward(address(pnkstr), 100_000e18);
+        _stake(alice, 1);
+        dist.notifyReward(address(imd), 1);
+        dist.notifyReward(address(pnkstr), 1);
+        vm.warp(block.timestamp + 365 days);
+        vm.prank(alice);
+        dist.exit();
+        assertEq(imd.balanceOf(alice), 1);
+        assertEq(pnkstr.balanceOf(alice), 1);
+        assertEq(dist.unallocated(address(imd)), 1_000e18);
+        assertEq(dist.unallocated(address(pnkstr)), 100_000e18);
+    }
+
+    function test_backlogStreamsAndNewcomerCannotClaimPastTime() public {
+        uint256 floor = dist.MIN_BACKLOG_STAKE();
+        _give(alice, floor);
+        _give(bob, floor);
+        dist.notifyReward(address(imd), 700e18);
+        dist.notifyReward(address(pnkstr), 7_000e18);
+        _stake(alice, floor);
+        uint256 start = block.timestamp;
+        assertEq(dist.earned(alice, address(imd)), 0, "no instant jackpot at threshold");
+        vm.warp(start + 1 days);
+        assertApproxEqAbs(dist.earned(alice, address(imd)), 100e18, 1);
+        _stake(bob, floor);
+        assertEq(dist.earned(bob, address(imd)), 0, "no retroactive accrual");
+        vm.warp(start + 7 days);
+        assertApproxEqAbs(dist.earned(alice, address(imd)), 400e18, 2);
+        assertApproxEqAbs(dist.earned(bob, address(imd)), 300e18, 1);
+        vm.prank(alice);
+        dist.exit();
+        vm.prank(bob);
+        dist.exit();
+        assertEq(dist.unallocated(address(imd)), 0);
+        assertEq(dist.unallocated(address(pnkstr)), 0);
+        assertLe(imd.balanceOf(alice) + imd.balanceOf(bob), 700e18);
+        assertApproxEqAbs(pnkstr.balanceOf(alice) + pnkstr.balanceOf(bob), 7_000e18, 3);
+    }
+
+    function test_backlogPausesBelowThresholdWithoutRetroactiveVesting() public {
+        uint256 floor = dist.MIN_BACKLOG_STAKE();
+        _give(alice, floor);
+        dist.notifyReward(address(imd), 700e18);
+        _stake(alice, floor);
+        uint256 start = block.timestamp;
+        vm.warp(start + 1 days);
+        vm.prank(alice);
+        dist.unstake(floor - 1);
+        assertEq(dist.unallocated(address(imd)), 600e18);
+        vm.warp(start + 365 days);
+        assertApproxEqAbs(dist.earned(alice, address(imd)), 100e18, 1);
+        _stake(alice, floor - 1);
+        assertApproxEqAbs(dist.earned(alice, address(imd)), 100e18, 1);
+        vm.warp(start + 372 days);
+        vm.prank(alice);
+        dist.exit();
+        assertEq(dist.unallocated(address(imd)), 0);
+        assertApproxEqAbs(imd.balanceOf(alice), 700e18, 2);
+    }
+
+    function testFuzz_backlogConservation(uint128 reward, uint32 elapsed) public {
+        reward = uint128(bound(reward, 1, 1e30));
+        elapsed = uint32(bound(elapsed, 0, 14 days));
+        uint256 floor = dist.MIN_BACKLOG_STAKE();
+        _give(alice, floor);
+        dist.notifyReward(address(imd), reward);
+        _stake(alice, floor);
+        vm.warp(block.timestamp + elapsed);
+        vm.prank(alice);
+        dist.exit();
+        assertEq(dist.unallocated(address(imd)) + dist.totalDistributed(address(imd)), reward);
+        assertLe(dist.totalClaimed(address(imd)), dist.totalDistributed(address(imd)));
+        assertEq(imd.balanceOf(address(dist)) + imd.balanceOf(alice), reward);
     }
 }

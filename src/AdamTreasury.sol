@@ -27,12 +27,14 @@ import {IAdamDistributor} from "./interfaces/IAdamDistributor.sol";
 ///     pushed to the AdamDistributor.
 ///
 /// MEV limits on the buys: each buy leg is capped at `maxEthPerBuy` per call, `process()` is rate limited by
-/// `cooldown`, and every swap requires at least the spot-price output after pool fees and the configured hook
-/// buy tax, minus `slippageBps`. Keepers should still submit `process()` through a private relay.
+/// `cooldown`, and every swap requires the greater of the checkpoint and spot outputs after fees/tax, minus
+/// `slippageBps`. Checkpoints are seeded at construction and updated only after successful buys. They are
+/// circuit breakers, not an oracle: deploy against an independently checked price; gradual moves can still
+/// consume the tolerance. Genuine adverse repricing may keep a leg pending until recovery or rerouting.
 ///
 /// Fault tolerance: each leg is attempted independently. A failing leg keeps its ETH earmarked and is retried
-/// on the next call; if a leg has failed continuously for `LEG_FALLBACK_DELAY` its earmarked ETH is rerouted
-/// to the other leg so holder funds never strand behind a dead pool.
+/// at half the attempt cap on the next call. Rerouting requires at least four failures spanning three days,
+/// with no gap greater than two hours. Dust waits for more fees and never counts as a failed attempt.
 ///
 /// Trust model: no owner, no upgrade, no withdrawal path for anyone. Every parameter is immutable.
 contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
@@ -47,6 +49,9 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
     uint256 public constant LEG_FALLBACK_DELAY = 3 days;
     uint256 public constant MAX_SLIPPAGE_BPS = 2000;
     uint256 public constant MAX_COOLDOWN = 1 days;
+    uint256 public constant MIN_ETH_PER_BUY = 1 gwei;
+    uint256 public constant MAX_FAILURE_GAP = 2 hours;
+    uint8 public constant MIN_FAILURES = 4;
     uint256 private constant TEAM_PUSH_GAS = 100_000;
     uint8 public constant LEG_IMD = 0;
     uint8 public constant LEG_PNKSTR = 1;
@@ -59,6 +64,11 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
         uint256 pending;
         /// @dev Timestamp of the first failure of the current failure streak; 0 when healthy.
         uint64 failingSince;
+        uint64 lastFailure;
+        uint8 failures;
+        uint256 retryCap;
+        /// @dev Post-buy price from the last success, initially the deployment-time price.
+        uint160 checkpointSqrtPriceX96;
     }
 
     IPoolManager public immutable poolManager;
@@ -109,7 +119,7 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
     /// @param pnkstrHooks ETH/PNKSTR pool hook address.
     /// @param pnkstrTaxBps Buy tax of the PNKSTR pool hook in bps of output (measured: 1000).
     /// @param maxEthPerBuy_ Max ETH swapped per leg per `process()` call.
-    /// @param slippageBps_ Tolerance below the spot-price-after-fees output.
+    /// @param slippageBps_ Tolerance below the greater of checkpoint and spot outputs after fees.
     /// @param cooldown_ Minimum seconds between two `process()` calls.
     constructor(
         address distributor_,
@@ -134,8 +144,8 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
                 || pnkstr == address(0)
         ) revert ZeroAddress();
         if (
-            maxEthPerBuy_ == 0 || slippageBps_ > MAX_SLIPPAGE_BPS || cooldown_ > MAX_COOLDOWN || imdTaxBps >= BPS
-                || pnkstrTaxBps >= BPS || imd == pnkstr || imdTickSpacing > uint24(type(int24).max)
+            maxEthPerBuy_ < MIN_ETH_PER_BUY || slippageBps_ > MAX_SLIPPAGE_BPS || cooldown_ > MAX_COOLDOWN
+                || imdTaxBps >= BPS || pnkstrTaxBps >= BPS || imd == pnkstr || imdTickSpacing > uint24(type(int24).max)
                 || pnkstrTickSpacing > uint24(type(int24).max)
         ) revert InvalidParameter();
 
@@ -162,6 +172,13 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
             hooks: IHooks(pnkstrHooks)
         });
         _legs[LEG_PNKSTR].hookTaxBps = pnkstrTaxBps;
+        // Constructor-only tooling may have no chain state. A missing pool/manager leaves a zero
+        // checkpoint, which fails closed in quoteMinOut rather than trusting the first keeper.
+        if (poolManager_.code.length != 0) {
+            for (uint8 i; i < 2; ++i) {
+                (_legs[i].checkpointSqrtPriceX96,,,) = poolManager.getSlot0(_legs[i].key.toId());
+            }
+        }
     }
 
     /// @dev Fee ETH arrives here from the PoolManager (`take`) during swaps; keep it to a bare receive.
@@ -265,12 +282,13 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
         return _legs[legId];
     }
 
-    /// @notice Minimum acceptable output for buying with `ethIn` on `legId`: spot price after the pool's
-    /// protocol + LP fee and the hook's buy tax, minus `slippageBps`.
+    /// @notice Minimum output using the greater of checkpoint and spot prices, after pool fees, hook tax
+    /// and slippage. A spot manipulation in process() cannot lower the stored reference.
     function quoteMinOut(uint8 legId, uint256 ethIn) public view returns (uint256) {
         Leg storage l = _legs[legId];
         (uint160 sqrtPriceX96,, uint24 protocolFee, uint24 lpFee) = poolManager.getSlot0(l.key.toId());
-        if (sqrtPriceX96 == 0) revert InvalidParameter();
+        if (sqrtPriceX96 == 0 || l.checkpointSqrtPriceX96 == 0) revert InvalidParameter();
+        if (sqrtPriceX96 < l.checkpointSqrtPriceX96) sqrtPriceX96 = l.checkpointSqrtPriceX96;
         uint24 swapFee = protocolFee.getZeroForOneFee().calculateSwapFee(lpFee);
         uint256 amountAfterFee = ethIn - FullMath.mulDiv(ethIn, swapFee, LPFeeLibrary.MAX_LP_FEE);
         // token1 per token0 = sqrtPrice^2 / 2^192
@@ -297,29 +315,48 @@ contract AdamTreasury is IUnlockCallback, ReentrancyGuard {
 
     function _executeLeg(uint8 legId) private {
         Leg storage l = _legs[legId];
-        uint256 ethIn = l.pending < maxEthPerBuy ? l.pending : maxEthPerBuy;
-        if (ethIn == 0) return;
+        uint256 allowedGap = cooldown > MAX_FAILURE_GAP ? cooldown : MAX_FAILURE_GAP;
+        if (l.failures != 0 && block.timestamp > uint256(l.lastFailure) + allowedGap) _resetFailures(l);
+        uint256 cap = l.retryCap == 0 ? maxEthPerBuy : l.retryCap;
+        uint256 ethIn = l.pending < cap ? l.pending : cap;
+        if (ethIn < MIN_ETH_PER_BUY) {
+            _resetFailures(l);
+            return;
+        }
         address token = Currency.unwrap(l.key.currency1);
 
         try poolManager.unlock(abi.encode(legId, ethIn)) returns (bytes memory result) {
             uint256 amountOut = abi.decode(result, (uint256));
             l.pending -= ethIn;
-            l.failingSince = 0;
+            _resetFailures(l);
+            (l.checkpointSqrtPriceX96,,,) = poolManager.getSlot0(l.key.toId());
             emit LegBought(legId, token, ethIn, amountOut);
             IERC20(token).forceApprove(address(distributor), amountOut);
             distributor.notifyReward(token, amountOut);
         } catch (bytes memory reason) {
             emit LegFailed(legId, ethIn, reason);
-            if (l.failingSince == 0) {
+            if (l.failures == 0) {
                 l.failingSince = uint64(block.timestamp);
-            } else if (block.timestamp >= uint256(l.failingSince) + LEG_FALLBACK_DELAY) {
+            }
+            l.lastFailure = uint64(block.timestamp);
+            if (l.failures < MIN_FAILURES) ++l.failures;
+            l.retryCap = ethIn / 2;
+            if (l.retryCap < MIN_ETH_PER_BUY) l.retryCap = MIN_ETH_PER_BUY;
+            if (l.failures >= MIN_FAILURES && block.timestamp >= uint256(l.failingSince) + LEG_FALLBACK_DELAY) {
                 uint8 other = legId == LEG_IMD ? LEG_PNKSTR : LEG_IMD;
                 uint256 moved = l.pending;
                 l.pending = 0;
-                l.failingSince = 0;
+                _resetFailures(l);
                 _legs[other].pending += moved;
                 emit LegRerouted(legId, other, moved);
             }
         }
+    }
+
+    function _resetFailures(Leg storage l) private {
+        l.failingSince = 0;
+        l.lastFailure = 0;
+        l.failures = 0;
+        l.retryCap = 0;
     }
 }

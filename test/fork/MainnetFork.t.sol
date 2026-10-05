@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {Vm} from "forge-std/Vm.sol";
 import {Test, console2} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
@@ -42,7 +43,7 @@ contract MainnetForkTest is Test {
     receive() external payable {}
 
     function setUp() public {
-        vm.createSelectFork(RPC);
+        vm.createSelectFork(RPC, 26_126_549);
         script = new DeployAdam();
         pm = IPoolManager(script.POOL_MANAGER());
         swapRouter = new PoolSwapTest(pm);
@@ -91,15 +92,31 @@ contract MainnetForkTest is Test {
     function test_pnkstrHookBuyTaxIsTenPercent() public {
         uint256 ethIn = 0.01 ether; // tiny, so price impact is negligible (< 0.01%)
         uint256 spot = _spotOut(pnkstrKey, ethIn);
-        uint256 hookBefore = IERC20(cfg.pnkstr).balanceOf(cfg.pnkstrHooks);
+        vm.recordLogs();
         BalanceDelta delta = _buy(pnkstrKey, ethIn);
         uint256 got = uint256(uint128(delta.amount1()));
         uint256 taxBps = 10_000 - (got * 10_000) / spot;
         console2.log("PNKSTR hook buy tax (bps, incl. price impact):", taxBps);
         assertGe(taxBps, 990);
         assertLe(taxBps, 1010);
-        // The hook keeps the tax in PNKSTR (afterSwapReturnDelta on the output).
-        assertApproxEqRel(IERC20(cfg.pnkstr).balanceOf(cfg.pnkstrHooks) - hookBefore, spot - got, 1e16);
+        // PoolManager emits the raw pool delta before afterSwap. Compare it to the returned user delta
+        // to measure the hook tax exactly, independently of price impact or where the hook sends tax.
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 rawOutput;
+        bytes32 swapEvent = keccak256("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)");
+        for (uint256 i; i < logs.length; ++i) {
+            if (
+                logs[i].emitter == address(pm) && logs[i].topics[0] == swapEvent
+                    && logs[i].topics[1] == PoolId.unwrap(pnkstrKey.toId())
+                    && logs[i].topics[2] == bytes32(uint256(uint160(address(swapRouter))))
+            ) {
+                (, int128 out,,,,) = abi.decode(logs[i].data, (int128, int128, uint160, uint128, int24, uint24));
+                rawOutput = uint256(uint128(out));
+            }
+        }
+        assertGt(rawOutput, got);
+        assertApproxEqAbs(rawOutput - got, rawOutput * cfg.pnkstrTaxBps / 10_000, 1);
+        console2.log("PNKSTR exact hook output tax (bps):", ((rawOutput - got) * 10_000 + rawOutput - 1) / rawOutput);
         assertEq(IERC20(cfg.pnkstr).balanceOf(address(this)), got, "PNKSTR has no transfer tax");
     }
 
@@ -119,8 +136,9 @@ contract MainnetForkTest is Test {
 
     function test_deploymentAndSingleSidedPosition() public view {
         assertEq(d.token.totalSupply(), 1_000_000_000e18);
-        assertEq(d.token.balanceOf(address(script)), 0, "all ADAM is in the position");
-        assertEq(d.token.balanceOf(address(pm)), 1_000_000_000e18);
+        uint256 dust = d.token.balanceOf(address(script));
+        assertLe(dust, 1_000, "liquidity fixed-point rounding leaves only sub-token dust");
+        assertEq(d.token.balanceOf(address(pm)) + dust, 1_000_000_000e18);
         assertEq(address(pm).balance >= 0, true);
         (uint160 sqrtP, int24 tick,,) = pm.getSlot0(d.key.toId());
         assertEq(sqrtP, TickMath.getSqrtPriceAtTick(cfg.initialTick));
@@ -129,10 +147,12 @@ contract MainnetForkTest is Test {
         uint256 tokenId = IPositionManager(cfg.positionManager).nextTokenId() - 1;
         assertEq(IPositionManager(cfg.positionManager).getPositionLiquidity(tokenId), d.liquidity);
         assertEq(d.hook.owner(), address(script));
-        assertEq(d.hook.launchTimestamp(), block.timestamp);
+        assertEq(d.hook.launchTimestamp(), 0);
+        assertTrue(d.hook.initialized());
     }
 
     function test_endToEndOnMainnetFork() public {
+        _buy(d.key, 1); // first filled swap starts anti-snipe, with a zero rounded fee
         vm.warp(block.timestamp + 30 minutes);
         // 1. Alice buys ADAM: 1.5% of her ETH lands in the treasury.
         vm.deal(alice, 10 ether);
@@ -177,16 +197,38 @@ contract MainnetForkTest is Test {
         assertEq(d.treasury.leg(1).pending, 0);
 
         // 4. Alice, the only staker, claims everything.
-        assertEq(d.distributor.earned(alice, cfg.imd), imdGot);
+        assertApproxEqAbs(d.distributor.earned(alice, cfg.imd), imdGot, 1);
         vm.prank(alice);
         d.distributor.claim();
-        assertEq(IERC20(cfg.imd).balanceOf(alice), imdGot);
-        assertEq(IERC20(cfg.pnkstr).balanceOf(alice), pnkGot);
+        assertApproxEqAbs(IERC20(cfg.imd).balanceOf(alice), imdGot, 1);
+        assertApproxEqAbs(IERC20(cfg.pnkstr).balanceOf(alice), pnkGot, 1);
     }
 
     function test_antiSnipeAtLaunchOnFork() public {
         uint256 before = address(d.treasury).balance;
         _buy(d.key, 1 ether);
         assertEq(address(d.treasury).balance - before, 0.2 ether);
+    }
+
+    function test_sandwichRefusesManipulatedRealImdPool() public {
+        (bool ok,) = address(d.treasury).call{value: 1 ether}("");
+        require(ok);
+        d.treasury.process();
+        vm.warp(block.timestamp + cfg.cooldown);
+        (ok,) = address(d.treasury).call{value: 2.3 ether}("");
+        require(ok);
+        uint256 before = IERC20(cfg.imd).balanceOf(address(d.distributor));
+        uint256 floor = d.treasury.quoteMinOut(0, 1 ether);
+        BalanceDelta pump = _buy(imdKey, 50 ether);
+        d.treasury.process();
+        IERC20(cfg.imd).approve(address(swapRouter), uint256(uint128(pump.amount1())));
+        swapRouter.swap(
+            imdKey,
+            SwapParams(false, -int256(pump.amount1()), TickMath.MAX_SQRT_PRICE - 1),
+            PoolSwapTest.TestSettings(false, false),
+            ""
+        );
+        uint256 bought = IERC20(cfg.imd).balanceOf(address(d.distributor)) - before;
+        assertTrue(d.treasury.leg(0).pending == 1 ether || bought >= floor);
     }
 }

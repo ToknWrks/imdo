@@ -17,7 +17,7 @@ contract TreasuryFuzzTest is LocalV4 {
     /// and nothing is left behind after both buys succeed.
     function testFuzz_splitIsExact(uint256 amount) public {
         uint256 cap = (2 * MAX_ETH_PER_BUY * BPS) / (BPS - 1000);
-        amount = bound(amount, 1e9, cap);
+        amount = bound(amount, 1e10, cap);
         _fund(amount);
         uint256 teamBefore = teamWallet.balance;
         uint256 pmBefore = address(poolManager).balance;

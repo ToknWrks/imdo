@@ -42,7 +42,8 @@ contract AdamHookTest is LocalV4 {
         assertEq(hook.owner(), hookOwner);
         assertEq(hook.treasury(), address(treasury));
         assertEq(hook.adam(), address(adam));
-        assertEq(hook.launchTimestamp(), block.timestamp);
+        assertEq(hook.launchTimestamp(), 0);
+        assertTrue(hook.initialized());
         assertEq(hook.currentFeeBps(), 2000, "20% at launch");
     }
 
@@ -76,7 +77,8 @@ contract AdamHookTest is LocalV4 {
 
         vm.prank(hookOwner);
         poolManager.initialize(key, TickMath.getSqrtPriceAtTick(0));
-        assertEq(fresh.launchTimestamp(), block.timestamp);
+        assertEq(fresh.launchTimestamp(), 0);
+        assertTrue(fresh.initialized());
     }
 
     function test_initializeOnlyOnce() public {
@@ -107,6 +109,7 @@ contract AdamHookTest is LocalV4 {
     // ------------------------------------------------------------------ fee schedule
 
     function test_decaySchedule() public {
+        buyExactIn(1);
         uint256 launch = hook.launchTimestamp();
         assertEq(hook.currentFeeBps(), 2000);
         vm.warp(launch + 15 minutes);
@@ -123,6 +126,7 @@ contract AdamHookTest is LocalV4 {
         a = uint32(bound(a, 0, 2 hours));
         b = uint32(bound(b, 0, 2 hours));
         if (a > b) (a, b) = (b, a);
+        buyExactIn(1);
         uint256 launch = hook.launchTimestamp();
         vm.warp(launch + a);
         uint256 feeA = hook.currentFeeBps();
@@ -151,6 +155,7 @@ contract AdamHookTest is LocalV4 {
     }
 
     function test_lowerFeeDuringDecayKeepsDecaying() public {
+        buyExactIn(1);
         vm.prank(hookOwner);
         hook.lowerFee(100);
         vm.warp(hook.launchTimestamp() + 15 minutes);
@@ -219,7 +224,7 @@ contract AdamHookTest is LocalV4 {
         uint256 poolIn = address(poolManager).balance - pmBefore;
         uint256 fee = address(treasury).balance - tBefore;
         assertEq(d.amount1(), int256(want), "exact ADAM out");
-        assertEq(fee, (poolIn * 150) / BPS, "fee is 1.5% of the ETH the pool charged");
+        assertEq(fee, (poolIn * 150) / (BPS - 150), "fee is 1.5% of gross buyer spend, rounded down");
         assertEq(uint256(uint128(-d.amount0())), poolIn + fee, "buyer pays pool amount plus fee");
     }
 
@@ -248,13 +253,15 @@ contract AdamHookTest is LocalV4 {
         BalanceDelta d = sellExactOut(0.5 ether);
         assertEq(d.amount0(), 0.5 ether, "seller receives exactly the requested ETH");
         assertEq(address(this).balance - ethBefore, 0.5 ether);
-        assertEq(address(treasury).balance - tBefore, 0.0075 ether, "1.5% of the requested ETH");
-        assertEq(pmBefore - address(poolManager).balance, 0.5075 ether);
+        uint256 fee = (0.5 ether * 150) / (BPS - 150);
+        assertEq(address(treasury).balance - tBefore, fee, "1.5% of gross pool output, rounded down");
+        assertEq(pmBefore - address(poolManager).balance, 0.5 ether + fee);
     }
 
     function testFuzz_buyFeeMatchesSchedule(uint256 ethIn, uint32 elapsed) public {
         ethIn = bound(ethIn, 1e12, 5 ether);
         elapsed = uint32(bound(elapsed, 0, 1 hours));
+        buyExactIn(1);
         vm.warp(hook.launchTimestamp() + elapsed);
         uint256 expectedBps = hook.currentFeeBps();
         uint256 before = address(treasury).balance;

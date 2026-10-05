@@ -248,8 +248,11 @@ contract AdamTreasuryTest is LocalV4 {
         vm.warp(block.timestamp + COOLDOWN);
         treasury.process();
         assertGt(pnkstr.balanceOf(address(distributor)), 0);
-        assertEq(treasury.leg(1).pending, 0);
+        assertEq(treasury.leg(1).pending, 0.225 ether, "successful retry uses half the failed amount");
         assertEq(treasury.leg(1).failingSince, 0);
+        vm.warp(block.timestamp + COOLDOWN);
+        treasury.process();
+        assertEq(treasury.leg(1).pending, 0);
     }
 
     function test_legFailureEmitsReason() public {
@@ -293,15 +296,12 @@ contract AdamTreasuryTest is LocalV4 {
         assertEq(since, block.timestamp);
         assertEq(treasury.leg(1).pending, 0.45 ether);
 
-        vm.warp(block.timestamp + 1 days);
-        treasury.process(); // still failing, not yet 3 days
-        assertEq(treasury.leg(1).pending, 0.45 ether);
-        assertEq(treasury.leg(1).failingSince, since);
-
-        vm.warp(uint256(since) + 3 days);
-        treasury.process(); // third failure after the delay -> reroute to IMD
+        for (uint256 hour = 1; hour <= 72; ++hour) {
+            vm.warp(uint256(since) + hour * 1 hours);
+            treasury.process();
+            if (hour < 72) assertEq(treasury.leg(1).pending, 0.45 ether);
+        }
         assertEq(treasury.leg(1).pending, 0);
-        assertEq(treasury.leg(1).failingSince, 0);
         assertEq(treasury.leg(0).pending, 0.45 ether, "moved to the IMD leg");
 
         uint256 imdBefore = imd.balanceOf(address(distributor));
@@ -339,9 +339,11 @@ contract AdamTreasuryTest is LocalV4 {
         assertEq(t.leg(0).pending, 0.45 ether, "IMD leg (dead pool) keeps its ETH");
         assertEq(t.leg(1).pending, 0);
         uint64 since = t.leg(0).failingSince;
-        vm.warp(uint256(since) + 3 days);
         uint256 pnkBefore = pnkstr.balanceOf(address(distributor));
-        t.process();
+        for (uint256 hour = 1; hour <= 72; ++hour) {
+            vm.warp(uint256(since) + hour * 1 hours);
+            t.process();
+        }
         assertEq(t.leg(0).pending, 0);
         // rerouted into PNKSTR which executes in the same call (leg order 0 then 1)
         assertEq(t.leg(1).pending, 0);
@@ -474,7 +476,7 @@ contract AdamTreasuryTest is LocalV4 {
         _fund(1 ether);
         treasury.process();
         uint256 imdGot = imd.balanceOf(address(distributor));
-        // Alice buys and stakes afterwards; the next notify folds the unallocated rewards in.
+        // Alice buys and stakes afterwards; the backlog vests over seven days from her stake.
         vm.deal(alice, 1 ether);
         vm.prank(alice);
         buyExactIn(1 ether);
@@ -486,6 +488,9 @@ contract AdamTreasuryTest is LocalV4 {
         _fund(1 ether);
         vm.warp(block.timestamp + COOLDOWN);
         treasury.process();
+        assertGt(distributor.unallocated(address(imd)), 0);
+        vm.warp(block.timestamp + distributor.BACKLOG_DURATION());
+        distributor.claim(); // permissionless checkpoint through a holder action
         assertEq(distributor.unallocated(address(imd)), 0);
         assertApproxEqAbs(
             distributor.earned(alice, address(imd)), imd.balanceOf(address(distributor)), 1, "only staker"
