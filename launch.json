@@ -1,41 +1,40 @@
 {
   "kind": "evm_project",
   "token": {
-    "contract": "LaunchToken",
-    "name": "ADAM",
-    "symbol": "ADAM",
+    "contract": "IMDOToken",
+    "name": "IMD Offsets",
+    "symbol": "IMDO",
     "decimals": 18
   },
   "contracts": [
     {
-      "contract": "AdamDistributor",
+      "contract": "ImdoStaking",
       "constructorArgs": [
         "$token",
-        "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
-        "0xc50673edb3a7b94e8cad8a7d4e0cd68864e33edf",
-        "0x000000000004444c5dc75cb358380d2e3de08a90",
-        "0x0000000000000000000000000000000000000000"
+        "0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7",
+        "0x000000000004444c5dc75cB358380D2e3dE08A90",
+        "$owner",
+        "$owner"
       ]
     },
     {
-      "contract": "AdamTreasury",
+      "contract": "ImdoTreasury",
       "constructorArgs": [
-        "$contract:AdamDistributor",
+        "$contract:ImdoStaking",
         "$owner",
-        "0x000000000004444c5dc75cb358380d2e3de08a90",
-        "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+        "$owner",
+        "$owner",
+        "0x000000000004444c5dc75cB358380D2e3dE08A90",
+        "0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7",
         "10000",
         "200",
         "0x0000000000000000000000000000000000000000",
-        "0",
-        "0xc50673edb3a7b94e8cad8a7d4e0cd68864e33edf",
-        "0",
-        "60",
-        "0xfaaad5b731f52cdc9746f2414c823eca9b06e844",
-        "1000",
         "1000000000000000000",
         "300",
-        "600"
+        "600",
+        "500000000000000000",
+        "50000000000000000",
+        "5000000000000000000"
       ]
     }
   ],
@@ -45,5 +44,5 @@
     "tickSpacing": 60,
     "initialPrice": "79228162514264337593543950336"
   },
-  "notes": "Describes the accepted LaunchToken, AdamDistributor and AdamTreasury sources in constructor dependency order. LaunchToken has no constructor arguments and sets name/symbol ADAM with 18 decimals. Policy $owner is the Treasury team beneficiary; no privileged wallet is hard-coded. Distributor excludedExtra is zero because no additional exclusion is configured and later contracts cannot be referenced. Treasury arguments match script/DeployAdam.s.sol: ETH/IMD pool fee 10000, spacing 200, no hook, 0 bps hook tax; ETH/PNKSTR pool fee 0, spacing 60, hook 0xfaaad5b731f52cdc9746f2414c823eca9b06e844, 1000 bps output-tax assumption; 1 ETH cap per buy leg, 300 bps slippage below the greater of checkpoint and spot output after pool fees and tax, 600-second process() cooldown. These reward-pool fees are unrelated to the launch pool fee. Anyone can call process(), for example hourly. New ETH is split 10% to $owner and 90% equally between the IMD and PNKSTR legs (odd wei to PNKSTR); failed buys halve the next attempt cap down to 1 gwei, while dust waits. Rerouting pending ETH requires at least four failures spanning three days with no gap over two hours; this can change the eventual 50/50 mix. Checkpoints are seeded at construction and refreshed after successful buys; missing pools fail closed. This circuit breaker is not an independent price oracle or a guarantee against MEV. The accepted fork tests encode the pool and tax assumptions at block 26,126,549; this manifest is not a fresh onchain measurement. AdamHook is intentionally not a manifest contract. Its constructor requires address flags 0x20cc; this manifest cannot request CREATE2 salt mining or attach it to the factory pool. Neither Treasury nor Distributor takes the hook address and Treasury.receive() accepts ETH from any sender, so the factory deployment is complete without it. The separate manual post-launch path uses script/DeployAdam.s.sol in hook-only mode: TREASURY is the manifested Treasury, DEPLOYER is policy $owner, TEAM_WALLET is its existing beneficiary, and LIQUIDITY_ADAM is the owner's available allocation. The script reads the token and Distributor from Treasury, checks reward-token compatibility, mines AdamHook(PoolManager, ADAM, Treasury, owner), and initializes/seeds a separate PoolKey (ETH, ADAM, fee 0, spacing 60, AdamHook). Only that hooked PoolKey charges the 20% to 1.5% ETH fee, decaying over 30 minutes from the first successful nonempty swap; its owner can only lower the final rate. The factory pool described in this manifest carries the factory's initialization-only guard and the network trading fee; it and any other hookless ETH/ADAM pool pay nothing to the Treasury. This is a platform constraint (no custom hook on the launch pool, no swap callbacks in the guard) that the manifest cannot change and the README discloses; frontends must pin the hooked PoolKey recorded at the owner's post-launch deployment for fee-bearing trades. Holders must approve and stake ADAM in AdamDistributor to earn IMD and PNKSTR, then call claim(), unstake() or exit(); ordinary wallet transfers do not update rewards. Rewards received without stake enter a seven-day backlog stream gated by 10,000,000 staked ADAM. Falling below that threshold pauses release; regaining it restarts the remainder over seven days. New rewards with existing stake distribute immediately, so just-in-time staking remains possible. Fixed exclusions are zero, dead, Distributor, ADAM, PoolManager and both reward tokens; Hook and Treasury are not explicit exclusions, and neither can stake. The pool entry uses the permitted native-ETH pair, fee 3000, spacing 60 and decimal sqrtPriceX96 2^96; the deployer derives the effective opening price from policy, and these values do not reproduce the manual script's fee-0 hooked pool or its opening tick. The factory supplies its guard, LP and MerkleDistributor, which are not application entries. Notes authorize no initialization calls, script execution or policy changes."
+  "notes": "Requested network context is Sepolia (11155111); chainId is not a manifest key. The required PoolManager and IMD literals are Ethereum mainnet addresses. Both had empty code on Sepolia when checked on 2026-10-07. This manifest can be constructed without those external contracts but is not an operational Sepolia fee pipeline: process rejects unavailable dependencies or an uninitialized IMD pool before allocating ETH. Do not send funds there. Ethereum mainnet is the real manual deployment target. ImdoHook and ImdoClaim are script-only and absent from contracts. Only backward contract references are supported, so claim, regenSafe, offsetsSafe and opsWallet use $owner here. In this manifest the owner is the only stakeFor caller and REGEN custodian; a later ImdoClaim cannot replace that immutable caller. The full manual deployment is a separate fresh deployment using script/DeployImdo.s.sol, which predicts the claim address before creating staking and verifies dependency code and IMD pool liquidity. Do not combine its 890 million LP / 110 million claim allocation with the factory allocation: the factory applies its own supply allocation and initialization-only pool guard. The manifest pool has native ETH, admission fee 3000, spacing 60 and nominal price 2^96; effective factory price and fee follow network policy. Only the separate manual hooked PoolKey charges the requested ETH fee. Treasury buys IMD from fee 10000, spacing 200, no-hook pool; max buy 1 ETH, slippage 300 bps, cooldown 600 seconds. Newly processed ETH pays a 50 bps keeper bounty and the remainder splits 1000/2500/2500/4000 bps to operations, ecological-credit retirement, REGEN and IMD. Processing cap is maxEthPerBuy * 10000^2 / (4000 * 9950); excess ETH remains unsplit. REGEN accrual is capped at 0.5 ETH per timestamp/7-day epoch, with bounds 0.05 to 5 ETH; only regenSafe can change the cap. Overflow funds IMD in the same call. Failed notifications stay pending and retries do not consume the new epoch cap or earn another bounty. Operations and offsets pull their own allocations. Failed keeper payouts can be pulled to a chosen recipient. IMD retries halve to 1 gwei, without rerouting; a deterministic seven-day rational decay of the sqrt-price checkpoint permits recovery from stale prices while spot remains a floor. Stakers lock each deposit for 24 hours and receive IMD plus lifetime ETH-denominated REGEN credits; claim and exit never pay ETH. Only regenSafe withdraws notified REGEN ETH for off-chain purchases and distribution. No owner, upgrades or arbitrary withdrawal on staking/treasury. See README and docs/REVIEW.md for custody assumptions, reproduction evidence and deployment responsibilities."
 }

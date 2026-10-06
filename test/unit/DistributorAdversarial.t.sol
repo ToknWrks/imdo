@@ -7,12 +7,11 @@ import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.so
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {LaunchToken} from "src/LaunchToken.sol";
-import {AdamDistributor} from "src/AdamDistributor.sol";
+import {ImdoStaking} from "src/ImdoStaking.sol";
 
 /// @dev An external reward token with independently selectable failure modes.
-/// @custom:x https://x.com/IaMaDamIMD
 contract AdversarialReward is ERC20 {
-    AdamDistributor public target;
+    ImdoStaking public target;
     uint16 public intakeTax;
     bool public returnFalse;
     bool public omitReturn;
@@ -31,7 +30,7 @@ contract AdversarialReward is ERC20 {
         _mint(to, amount);
     }
 
-    function configure(AdamDistributor d, uint16 tax, bool fail, bool noReturn, bool pause_, bool reenter) external {
+    function configure(ImdoStaking d, uint16 tax, bool fail, bool noReturn, bool pause_, bool reenter) external {
         target = d;
         intakeTax = tax;
         returnFalse = fail;
@@ -66,11 +65,11 @@ contract AdversarialReward is ERC20 {
         if (callback && (from == address(target) || to == address(target))) {
             callback = false;
             bytes[5] memory attempts = [
-                abi.encodeCall(AdamDistributor.stake, (1)),
-                abi.encodeCall(AdamDistributor.unstake, (1)),
-                abi.encodeCall(AdamDistributor.claim, ()),
-                abi.encodeCall(AdamDistributor.exit, ()),
-                abi.encodeCall(AdamDistributor.notifyReward, (address(this), 1))
+                abi.encodeCall(ImdoStaking.stake, (1)),
+                abi.encodeCall(ImdoStaking.unstake, (1)),
+                abi.encodeCall(ImdoStaking.claim, ()),
+                abi.encodeCall(ImdoStaking.exit, ()),
+                abi.encodeCall(ImdoStaking.notifyReward, (address(this), 1))
             ];
             for (uint256 i; i < attempts.length; ++i) {
                 (bool ok, bytes memory reason) = address(target).call(attempts[i]);
@@ -83,12 +82,11 @@ contract AdversarialReward is ERC20 {
     }
 }
 
-/// @custom:x https://x.com/IaMaDamIMD
 contract DistributorAdversarialTest is Test {
-    LaunchToken internal adam;
+    LaunchToken internal imdo;
     AdversarialReward internal reward0;
     AdversarialReward internal reward1;
-    AdamDistributor internal dist;
+    ImdoStaking internal dist;
     address internal constant ALICE = address(0xA11CE);
     address internal constant BOB = address(0xB0B);
     address internal constant MANAGER = address(0x9000);
@@ -96,22 +94,22 @@ contract DistributorAdversarialTest is Test {
 
     function setUp() public {
         vm.warp(1_800_000_000);
-        adam = new LaunchToken();
+        imdo = new LaunchToken();
         reward0 = new AdversarialReward();
         reward1 = new AdversarialReward();
-        dist = new AdamDistributor(address(adam), address(reward0), address(reward1), MANAGER, EXTRA);
+        dist = new ImdoStaking(address(imdo), address(reward0), MANAGER, EXTRA, address(0x9002));
         reward0.configure(dist, 0, false, false, false, false);
         reward1.configure(dist, 0, false, false, false, false);
         reward0.mint(address(this), 1e30);
         reward1.mint(address(this), 1e30);
         reward0.approve(address(dist), type(uint256).max);
         reward1.approve(address(dist), type(uint256).max);
-        adam.transfer(ALICE, 100_000_000e18);
-        adam.transfer(BOB, 100_000_000e18);
+        imdo.transfer(ALICE, 100_000_000e18);
+        imdo.transfer(BOB, 100_000_000e18);
         vm.prank(ALICE);
-        adam.approve(address(dist), type(uint256).max);
+        imdo.approve(address(dist), type(uint256).max);
         vm.prank(BOB);
-        adam.approve(address(dist), type(uint256).max);
+        imdo.approve(address(dist), type(uint256).max);
     }
 
     function _stake(address who, uint256 amount) internal {
@@ -145,7 +143,7 @@ contract DistributorAdversarialTest is Test {
         assertEq(reward0.balanceOf(ALICE), 1);
         reward0.configure(dist, 10_000, false, false, false, false);
         uint256 beforeBalance = reward0.balanceOf(address(this));
-        vm.expectRevert(AdamDistributor.ZeroAmount.selector);
+        vm.expectRevert(ImdoStaking.ZeroAmount.selector);
         dist.notifyReward(address(reward0), 100);
         assertEq(reward0.balanceOf(address(this)), beforeBalance, "burn must roll back on zero receipt");
         assertEq(dist.totalDistributed(address(reward0)), 1);
@@ -171,35 +169,15 @@ contract DistributorAdversarialTest is Test {
         assertEq(reward0.balanceOf(address(dist)), 0);
     }
 
-    function test_failedSecondPayoutRollsBackFirstPayoutAndCanRecover() public {
-        _stake(ALICE, 1e18);
-        dist.notifyReward(address(reward0), 100e6);
-        dist.notifyReward(address(reward1), 200e6);
-        uint256 owed0 = dist.earned(ALICE, address(reward0));
-        uint256 owed1 = dist.earned(ALICE, address(reward1));
-        reward1.configure(dist, 0, true, false, false, false);
-        vm.prank(ALICE);
-        vm.expectRevert(abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, address(reward1)));
-        dist.claim();
-        assertEq(reward0.balanceOf(ALICE), 0, "first reward must roll back too");
-        assertEq(dist.totalClaimed(address(reward0)), 0);
-        assertEq(dist.earned(ALICE, address(reward0)), owed0);
-        assertEq(dist.earned(ALICE, address(reward1)), owed1);
-        reward1.configure(dist, 0, false, false, false, false);
-        vm.prank(ALICE);
-        dist.claim();
-        assertEq(reward0.balanceOf(ALICE), owed0);
-        assertEq(reward1.balanceOf(ALICE), owed1);
-    }
-
     function test_pausedRewardCannotTrapUnstakedPrincipal() public {
         _stake(ALICE, 1e18);
         dist.notifyReward(address(reward0), 100e6);
-        uint256 principalBefore = adam.balanceOf(ALICE);
+        uint256 principalBefore = imdo.balanceOf(ALICE);
         reward0.configure(dist, 0, false, false, true, false);
+        vm.warp(vm.getBlockTimestamp() + 1 days);
         vm.prank(ALICE);
         dist.unstake(1e18);
-        assertEq(adam.balanceOf(ALICE), principalBefore + 1e18);
+        assertEq(imdo.balanceOf(ALICE), principalBefore + 1e18);
         assertEq(dist.stakedBalance(ALICE), 0);
         assertApproxEqAbs(dist.earned(ALICE, address(reward0)), 100e6, 1);
         reward0.configure(dist, 0, false, false, false, false);
@@ -231,12 +209,12 @@ contract DistributorAdversarialTest is Test {
     function test_failedStakeRollsBackBacklogAndShares() public {
         dist.notifyReward(address(reward0), 700e6);
         _stake(ALICE, dist.MIN_BACKLOG_STAKE());
-        vm.warp(block.timestamp + 1 days);
+        vm.warp(vm.getBlockTimestamp() + 1 days);
         uint256 beforeIndex = dist.rewardPerShare(address(reward0));
         uint256 beforeReserve = dist.unallocated(address(reward0));
         uint256 beforeStake = dist.totalStaked();
         vm.prank(BOB);
-        adam.approve(address(dist), 0);
+        imdo.approve(address(dist), 0);
         vm.prank(BOB);
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(dist), 0, 1e18)
@@ -246,23 +224,16 @@ contract DistributorAdversarialTest is Test {
         assertEq(dist.stakedBalance(BOB), 0);
         assertEq(dist.unallocated(address(reward0)), beforeReserve);
         assertEq(dist.rewardPerShare(address(reward0)), beforeIndex);
-        assertEq(adam.balanceOf(address(dist)), beforeStake);
+        assertEq(imdo.balanceOf(address(dist)), beforeStake);
     }
 
     function test_allFixedExclusionsRejectStakeBeforeTokenInteraction() public {
         address[8] memory excluded = [
-            address(0),
-            address(0xdead),
-            address(dist),
-            address(adam),
-            MANAGER,
-            address(reward0),
-            address(reward1),
-            EXTRA
+            address(0), address(0xdead), address(dist), address(imdo), MANAGER, address(reward0), address(0x9002), EXTRA
         ];
         for (uint256 i; i < excluded.length; ++i) {
             vm.prank(excluded[i]);
-            vm.expectRevert(abi.encodeWithSelector(AdamDistributor.Excluded.selector, excluded[i]));
+            vm.expectRevert(abi.encodeWithSelector(ImdoStaking.Excluded.selector, excluded[i]));
             dist.stake(1);
             assertEq(dist.stakedBalance(excluded[i]), 0);
             assertEq(dist.earned(excluded[i], address(reward0)), 0);
@@ -279,11 +250,13 @@ contract DistributorAdversarialTest is Test {
         _stake(ALICE, a);
         _stake(BOB, b);
         dist.notifyReward(address(reward0), first);
+        vm.warp(vm.getBlockTimestamp() + 1 days);
         vm.prank(ALICE);
         dist.unstake(a);
         dist.notifyReward(address(reward0), second);
         vm.prank(ALICE);
         dist.claim();
+        vm.warp(vm.getBlockTimestamp() + 1 days);
         vm.prank(BOB);
         dist.exit();
         // Independent rational allocation by ownership in each epoch; no accumulator reimplementation.
@@ -293,18 +266,19 @@ contract DistributorAdversarialTest is Test {
     }
 
     function test_fullSupplyCanStakeAndExit() public {
-        uint256 aliceBalance = adam.balanceOf(ALICE);
-        uint256 bobBalance = adam.balanceOf(BOB);
+        uint256 aliceBalance = imdo.balanceOf(ALICE);
+        uint256 bobBalance = imdo.balanceOf(BOB);
         vm.prank(ALICE);
-        adam.transfer(address(this), aliceBalance);
+        imdo.transfer(address(this), aliceBalance);
         vm.prank(BOB);
-        adam.transfer(address(this), bobBalance);
-        adam.approve(address(dist), type(uint256).max);
-        dist.stake(adam.totalSupply());
+        imdo.transfer(address(this), bobBalance);
+        imdo.approve(address(dist), type(uint256).max);
+        dist.stake(imdo.totalSupply());
         dist.notifyReward(address(reward0), 1e6);
+        vm.warp(vm.getBlockTimestamp() + 1 days);
         dist.exit();
-        assertEq(adam.balanceOf(address(this)), 1_000_000_000e18);
-        assertEq(adam.balanceOf(address(dist)), 0);
+        assertEq(imdo.balanceOf(address(this)), 1_000_000_000e18);
+        assertEq(imdo.balanceOf(address(dist)), 0);
         assertApproxEqAbs(reward0.balanceOf(address(this)), 1e30, 1);
     }
 }

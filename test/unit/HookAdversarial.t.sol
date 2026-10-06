@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {LocalV4} from "../utils/LocalV4.sol";
-import {AdamHook} from "src/AdamHook.sol";
+import {ImdoHook} from "src/ImdoHook.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
@@ -11,7 +11,6 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 
-/// @custom:x https://x.com/IaMaDamIMD
 contract HookAdversarialTest is LocalV4 {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -64,20 +63,20 @@ contract HookAdversarialTest is LocalV4 {
         buyExactIn(2 ether);
         uint256 snapshot = vm.snapshotState();
         sellExactOut(0.01 ether);
-        (uint160 limit,,,) = IPoolManager(address(poolManager)).getSlot0(adamKey.toId());
+        (uint160 limit,,,) = IPoolManager(address(poolManager)).getSlot0(imdoKey.toId());
         assertTrue(vm.revertToState(snapshot));
         uint256 traderBefore = address(this).balance;
         uint256 managerBefore = address(poolManager).balance;
         uint256 treasuryBefore = address(treasury).balance;
-        uint256 adamBefore = adam.balanceOf(address(this));
-        (uint160 priceBefore,,,) = IPoolManager(address(poolManager)).getSlot0(adamKey.toId());
+        uint256 imdoBefore = imdo.balanceOf(address(this));
+        (uint160 priceBefore,,,) = IPoolManager(address(poolManager)).getSlot0(imdoKey.toId());
         vm.expectRevert(); // PoolManager wraps the hook's PartialFillNotSupported error.
-        swapRouter.swap(adamKey, SwapParams(false, 0.1 ether, limit), PoolSwapTest.TestSettings(false, false), "");
+        swapRouter.swap(imdoKey, SwapParams(false, 0.1 ether, limit), PoolSwapTest.TestSettings(false, false), "");
         assertEq(address(this).balance, traderBefore);
         assertEq(address(poolManager).balance, managerBefore);
         assertEq(address(treasury).balance, treasuryBefore);
-        assertEq(adam.balanceOf(address(this)), adamBefore);
-        (uint160 priceAfter,,,) = IPoolManager(address(poolManager)).getSlot0(adamKey.toId());
+        assertEq(imdo.balanceOf(address(this)), imdoBefore);
+        (uint160 priceAfter,,,) = IPoolManager(address(poolManager)).getSlot0(imdoKey.toId());
         assertEq(priceAfter, priceBefore);
     }
 
@@ -96,7 +95,7 @@ contract HookAdversarialTest is LocalV4 {
         sellExactOut(0.01 ether);
         assertEq(address(treasury).balance, before);
         vm.prank(hookOwner);
-        vm.expectRevert(abi.encodeWithSelector(AdamHook.FeeNotLower.selector, uint16(0), uint16(1)));
+        vm.expectRevert(abi.encodeWithSelector(ImdoHook.FeeNotLower.selector, uint16(0), uint16(1)));
         hook.lowerFee(1);
     }
 }

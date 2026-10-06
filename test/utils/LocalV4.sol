@@ -17,49 +17,35 @@ import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiqui
 import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 
-import {LaunchToken} from "../../src/LaunchToken.sol";
-import {AdamDistributor} from "../../src/AdamDistributor.sol";
-import {AdamTreasury} from "../../src/AdamTreasury.sol";
-import {AdamHook} from "../../src/AdamHook.sol";
-import {DeployAdam} from "../../script/DeployAdam.s.sol";
+import {IMDOToken} from "../../src/IMDOToken.sol";
+import {ImdoStaking} from "../../src/ImdoStaking.sol";
+import {ImdoTreasury} from "../../src/ImdoTreasury.sol";
+import {ImdoHook} from "../../src/ImdoHook.sol";
 import {HookMiner} from "../../script/utils/HookMiner.sol";
-import {MockTaxHook} from "./MockTaxHook.sol";
 
-/// @notice Local Uniswap v4 environment: a real PoolManager, mock IMD / PNKSTR with ETH pools (the PNKSTR pool
-/// carries a taxing hook like mainnet), and the ADAM system deployed through the real deploy script.
-/// @custom:x https://x.com/IaMaDamIMD
 abstract contract LocalV4 is Test {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
-
-    uint16 internal constant PNKSTR_TAX_BPS = 1000;
     uint256 internal constant MAX_ETH_PER_BUY = 1 ether;
     uint16 internal constant SLIPPAGE_BPS = 300;
-    uint32 internal constant COOLDOWN = 10 minutes;
-
+    uint32 internal constant COOLDOWN = 600;
     PoolManager internal poolManager;
     PoolSwapTest internal swapRouter;
     PoolModifyLiquidityTest internal lpRouter;
-
     MockERC20 internal imd;
-    MockERC20 internal pnkstr;
-    MockTaxHook internal pnkstrHook;
     PoolKey internal imdKey;
-    PoolKey internal pnkstrKey;
-
-    DeployAdam internal deployScript;
-    DeployAdam.Config internal cfg;
-    LaunchToken internal adam;
-    AdamDistributor internal distributor;
-    AdamTreasury internal treasury;
-    AdamHook internal hook;
-    PoolKey internal adamKey;
-
+    IMDOToken internal imdo;
+    ImdoStaking internal distributor;
+    ImdoTreasury internal treasury;
+    ImdoHook internal hook;
+    PoolKey internal imdoKey;
     address internal hookOwner = makeAddr("hookOwner");
-    address internal teamWallet = makeAddr("teamWallet");
+    address internal opsWallet = makeAddr("opsWallet");
+    address internal offsetsSafe = makeAddr("offsetsSafe");
+    address internal regenSafe = makeAddr("regenSafe");
+    address internal claimAddress = makeAddr("claimAddress");
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
-
     receive() external payable {}
 
     function setUp() public virtual {
@@ -67,53 +53,48 @@ abstract contract LocalV4 is Test {
         poolManager = new PoolManager(address(this));
         swapRouter = new PoolSwapTest(poolManager);
         lpRouter = new PoolModifyLiquidityTest(poolManager);
-
-        _deployRewardPools();
-        _deployAdamSystem();
-        _launchAdamPool();
+        vm.deal(address(this), 10_000 ether);
+        imd = new MockERC20("Identity.md", "IMD", 18);
+        imd.mint(address(this), 1e36);
+        imd.approve(address(lpRouter), type(uint256).max);
+        imdKey = PoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(imd)), 10000, 200, IHooks(address(0)));
+        _initAndSeed(imdKey, 54000, -887200, 887200, 200 ether);
+        imdo = new IMDOToken();
+        distributor = new ImdoStaking(address(imdo), address(imd), address(poolManager), claimAddress, regenSafe);
+        treasury = _newTreasury(address(distributor), address(poolManager));
+        bytes memory args = abi.encode(address(poolManager), address(imdo), address(treasury), hookOwner);
+        (address expected, bytes32 salt) = HookMiner.find(address(this), 0x20cc, type(ImdoHook).creationCode, args);
+        hook = new ImdoHook{salt: salt}(poolManager, address(imdo), address(treasury), hookOwner);
+        assertEq(address(hook), expected);
+        imdoKey = PoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(imdo)), 0, 60, IHooks(address(hook)));
+        vm.prank(hookOwner);
+        poolManager.initialize(imdoKey, TickMath.getSqrtPriceAtTick(177240));
+        uint128 liquidity = LiquidityAmounts.getLiquidityForAmount1(
+            TickMath.getSqrtPriceAtTick(108180), TickMath.getSqrtPriceAtTick(177240), 890_000_000e18
+        );
+        imdo.approve(address(lpRouter), type(uint256).max);
+        lpRouter.modifyLiquidity(imdoKey, ModifyLiquidityParams(108180, 177240, int256(uint256(liquidity)), 0), "");
+        imdo.approve(address(swapRouter), type(uint256).max);
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Environment
-    // ---------------------------------------------------------------------------------------------
-
-    function _deployRewardPools() internal {
-        // Deterministic, sorted-above-ETH token addresses are guaranteed because ETH is address(0).
-        imd = new MockERC20("Identity.md", "IMD", 18);
-        pnkstr = new MockERC20("PunkStrategy", "PNKSTR", 18);
-        imd.mint(address(this), 1e36);
-        pnkstr.mint(address(this), 1e36);
-        imd.approve(address(lpRouter), type(uint256).max);
-        pnkstr.approve(address(lpRouter), type(uint256).max);
-        vm.deal(address(this), 10_000 ether);
-
-        (address expected, bytes32 salt) = HookMiner.find(
-            address(this),
-            uint160(0x40 | 0x4),
-            type(MockTaxHook).creationCode,
-            abi.encode(address(poolManager), uint256(PNKSTR_TAX_BPS))
+    function _newTreasury(address staker, address manager) internal returns (ImdoTreasury) {
+        return new ImdoTreasury(
+            staker,
+            opsWallet,
+            offsetsSafe,
+            regenSafe,
+            manager,
+            address(imd),
+            10000,
+            200,
+            address(0),
+            1 ether,
+            300,
+            600,
+            0.5 ether,
+            0.05 ether,
+            5 ether
         );
-        pnkstrHook = new MockTaxHook{salt: salt}(poolManager, PNKSTR_TAX_BPS);
-        assertEq(address(pnkstrHook), expected, "tax hook address");
-
-        imdKey = PoolKey({
-            currency0: CurrencyLibrary.ADDRESS_ZERO,
-            currency1: Currency.wrap(address(imd)),
-            fee: 10_000,
-            tickSpacing: 200,
-            hooks: IHooks(address(0))
-        });
-        pnkstrKey = PoolKey({
-            currency0: CurrencyLibrary.ADDRESS_ZERO,
-            currency1: Currency.wrap(address(pnkstr)),
-            fee: 0,
-            tickSpacing: 60,
-            hooks: IHooks(address(pnkstrHook))
-        });
-
-        // ~223 IMD per ETH and ~170k PNKSTR per ETH, roughly the mainnet prices on 2026-10-05.
-        _initAndSeed(imdKey, 54_000, -887_200, 887_200, 200 ether);
-        _initAndSeed(pnkstrKey, 120_420, -887_220, 887_220, 200 ether);
     }
 
     function _initAndSeed(PoolKey memory key, int24 tick, int24 lower, int24 upper, uint256 ethAmount) internal {
@@ -129,52 +110,6 @@ abstract contract LocalV4 is Test {
             }),
             ""
         );
-    }
-
-    function _deployAdamSystem() internal virtual {
-        deployScript = new DeployAdam();
-        cfg = deployScript.mainnetConfig(address(this), teamWallet, hookOwner, address(0));
-        cfg.poolManager = address(poolManager);
-        cfg.positionManager = address(0);
-        cfg.permit2 = address(0);
-        cfg.create2Deployer = address(deployScript);
-        cfg.imd = address(imd);
-        cfg.pnkstr = address(pnkstr);
-        cfg.pnkstrHooks = address(pnkstrHook);
-        cfg.pnkstrTaxBps = PNKSTR_TAX_BPS;
-        cfg.maxEthPerBuy = MAX_ETH_PER_BUY;
-        cfg.slippageBps = SLIPPAGE_BPS;
-        cfg.cooldown = COOLDOWN;
-
-        DeployAdam.Deployment memory d = deployScript.deployContracts(cfg);
-        adam = d.token;
-        distributor = d.distributor;
-        treasury = d.treasury;
-        hook = d.hook;
-        adamKey = d.key;
-    }
-
-    /// @dev Pool initialization is owner-only; the single-sided ADAM position mirrors the deploy script's.
-    function _launchAdamPool() internal {
-        uint160 sqrtP = TickMath.getSqrtPriceAtTick(cfg.initialTick);
-        vm.prank(hookOwner);
-        poolManager.initialize(adamKey, sqrtP);
-
-        uint128 liquidity = LiquidityAmounts.getLiquidityForAmount1(
-            TickMath.getSqrtPriceAtTick(cfg.lowerTick), sqrtP, cfg.liquidityAdam
-        );
-        adam.approve(address(lpRouter), type(uint256).max);
-        lpRouter.modifyLiquidity(
-            adamKey,
-            ModifyLiquidityParams({
-                tickLower: cfg.lowerTick,
-                tickUpper: cfg.initialTick,
-                liquidityDelta: int256(uint256(liquidity)),
-                salt: 0
-            }),
-            ""
-        );
-        adam.approve(address(swapRouter), type(uint256).max);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -198,19 +133,19 @@ abstract contract LocalV4 is Test {
     }
 
     function buyExactIn(uint256 ethIn) internal returns (BalanceDelta) {
-        return _swap(adamKey, true, -int256(ethIn), ethIn);
+        return _swap(imdoKey, true, -int256(ethIn), ethIn);
     }
 
-    function buyExactOut(uint256 adamOut, uint256 maxEth) internal returns (BalanceDelta) {
-        return _swap(adamKey, true, int256(adamOut), maxEth);
+    function buyExactOut(uint256 imdoOut, uint256 maxEth) internal returns (BalanceDelta) {
+        return _swap(imdoKey, true, int256(imdoOut), maxEth);
     }
 
-    function sellExactIn(uint256 adamIn) internal returns (BalanceDelta) {
-        return _swap(adamKey, false, -int256(adamIn), 0);
+    function sellExactIn(uint256 imdoIn) internal returns (BalanceDelta) {
+        return _swap(imdoKey, false, -int256(imdoIn), 0);
     }
 
     function sellExactOut(uint256 ethOut) internal returns (BalanceDelta) {
-        return _swap(adamKey, false, int256(ethOut), 0);
+        return _swap(imdoKey, false, int256(ethOut), 0);
     }
 
     function warpPastDecay() internal {
@@ -218,7 +153,7 @@ abstract contract LocalV4 is Test {
         vm.warp(uint256(hook.launchTimestamp()) + hook.DECAY_DURATION());
     }
 
-    function adamPoolTick() internal view returns (int24 tick) {
-        (, tick,,) = IPoolManager(address(poolManager)).getSlot0(adamKey.toId());
+    function imdoPoolTick() internal view returns (int24 tick) {
+        (, tick,,) = IPoolManager(address(poolManager)).getSlot0(imdoKey.toId());
     }
 }

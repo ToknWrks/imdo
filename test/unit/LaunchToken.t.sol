@@ -3,19 +3,18 @@ pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
-import {LaunchToken} from "../../src/LaunchToken.sol";
+import {IMDOToken} from "../../src/IMDOToken.sol";
 
-/// @custom:x https://x.com/IaMaDamIMD
-contract LaunchTokenTest is Test {
-    LaunchToken internal token;
+contract IMDOTokenTest is Test {
+    IMDOToken internal token;
 
     function setUp() public {
-        token = new LaunchToken();
+        token = new IMDOToken();
     }
 
     function test_metadata() public view {
-        assertEq(token.name(), "ADAM");
-        assertEq(token.symbol(), "ADAM");
+        assertEq(token.name(), "IMD Offsets");
+        assertEq(token.symbol(), "IMDO");
         assertEq(token.decimals(), 18);
     }
 

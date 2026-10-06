@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -18,9 +20,9 @@ import {
 } from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 
-/// @title AdamHook
-/// @notice Uniswap v4 hook for the single ETH/ADAM pool. Charges a fee in ETH on every buy and sell and
-/// forwards it to the Treasury inside the swap, with no other logic on the swap path.
+/// @title ImdoHook
+/// @notice Uniswap v4 hook for the single ETH/IMDO pool. Charges a fee in ETH on every buy and sell and
+/// forwards it to the treasury, or retains a redeemable claim if the manager lacks ETH.
 ///
 /// Fee schedule (basis points of the ETH leg of the swap):
 ///   - anti-snipe: 20.00% at the first filled swap, decaying linearly to `feeBps` over 30 minutes;
@@ -28,15 +30,14 @@ import {SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/types/Pool
 ///
 /// How the ETH is taken, by swap type (ETH is always currency0 of the pool):
 ///   - buy, exact input  (ETH specified):  beforeSwap takes fee% of the ETH in; the pool swaps the rest.
-///   - buy, exact output (ADAM specified): afterSwap grosses up the pool's ETH charge by fee/(1-fee).
-///   - sell, exact input (ADAM specified): afterSwap takes fee% of the ETH the pool pays out.
+///   - buy, exact output (IMDO specified): afterSwap grosses up the pool's ETH charge by fee/(1-fee).
+///   - sell, exact input (IMDO specified): afterSwap takes fee% of the ETH the pool pays out.
 ///   - sell, exact output (ETH specified): beforeSwap grosses up the requested ETH by fee/(1-fee).
 /// ETH-specified swaps must fill completely or revert, including all fee transfers.
 ///
 /// Trust model: the owner (Ownable2Step) can lower the fee and is the only account that may initialize the
-/// pool. Nothing else is privileged; the hook never holds funds (every fee is taken straight to Treasury).
-/// @custom:x https://x.com/IaMaDamIMD
-contract AdamHook is IHooks, Ownable2Step {
+/// pool. Deferred fees can only be redeemed to the immutable treasury.
+contract ImdoHook is IHooks, IUnlockCallback, Ownable2Step, ReentrancyGuard {
     using PoolIdLibrary for PoolKey;
     using SafeCast for uint256;
 
@@ -49,7 +50,7 @@ contract AdamHook is IHooks, Ownable2Step {
     uint16 public constant INITIAL_FEE_BPS = 150;
 
     IPoolManager public immutable poolManager;
-    address public immutable adam;
+    address public immutable imdo;
     address public immutable treasury;
 
     /// @notice Current steady-state fee in basis points.
@@ -74,18 +75,23 @@ contract AdamHook is IHooks, Ownable2Step {
     error ZeroAddress();
     error PartialFillNotSupported();
     error EmptySwap();
+    error NotRedeeming();
+    error NothingToRedeem();
+    bool private _redeeming;
+    event FeesDeferred(uint256 amount);
+    event FeesRedeemed(uint256 amount);
 
     modifier onlyPoolManager() {
         if (msg.sender != address(poolManager)) revert NotPoolManager();
         _;
     }
 
-    constructor(IPoolManager poolManager_, address adam_, address treasury_, address owner_) Ownable(owner_) {
-        if (address(poolManager_) == address(0) || adam_ == address(0) || treasury_ == address(0)) {
+    constructor(IPoolManager poolManager_, address imdo_, address treasury_, address owner_) Ownable(owner_) {
+        if (address(poolManager_) == address(0) || imdo_ == address(0) || treasury_ == address(0)) {
             revert ZeroAddress();
         }
         poolManager = poolManager_;
-        adam = adam_;
+        imdo = imdo_;
         treasury = treasury_;
         Hooks.validateHookPermissions(this, getHookPermissions());
     }
@@ -149,11 +155,11 @@ contract AdamHook is IHooks, Ownable2Step {
     // Hook callbacks
     // ---------------------------------------------------------------------------------------------
 
-    /// @dev Only the owner may create the pool, exactly once, and it must be native ETH / ADAM.
+    /// @dev Only the owner may create the pool, exactly once, and it must be native ETH / IMDO.
     function beforeInitialize(address sender, PoolKey calldata key, uint160) external onlyPoolManager returns (bytes4) {
         if (initialized) revert AlreadyInitialized();
         if (sender != owner()) revert OnlyOwnerCanInitialize();
-        if (!key.currency0.isAddressZero() || Currency.unwrap(key.currency1) != adam) revert InvalidPool();
+        if (!key.currency0.isAddressZero() || Currency.unwrap(key.currency1) != imdo) revert InvalidPool();
         initialized = true;
         poolId = key.toId();
         emit PoolInitialized(poolId);
@@ -252,6 +258,24 @@ contract AdamHook is IHooks, Ownable2Step {
         revert HookNotImplemented();
     }
 
+    /// @notice Anyone can redeem deferred fees after settlement, always to the treasury.
+    function redeemFees() external nonReentrant {
+        uint256 amount = poolManager.balanceOf(address(this), 0);
+        if (amount == 0) revert NothingToRedeem();
+        _redeeming = true;
+        poolManager.unlock(abi.encode(amount));
+        _redeeming = false;
+        emit FeesRedeemed(amount);
+    }
+
+    function unlockCallback(bytes calldata data) external onlyPoolManager returns (bytes memory) {
+        if (!_redeeming) revert NotRedeeming();
+        uint256 amount = abi.decode(data, (uint256));
+        poolManager.burn(address(this), 0, amount);
+        poolManager.take(CurrencyLibrary.ADDRESS_ZERO, treasury, amount);
+        return "";
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Internals
     // ---------------------------------------------------------------------------------------------
@@ -270,7 +294,14 @@ contract AdamHook is IHooks, Ownable2Step {
     function _takeFee(SwapParams calldata params, uint256 ethAmount) private returns (uint256 fee) {
         uint256 bps = currentFeeBps();
         fee = _fee(ethAmount, params.amountSpecified > 0);
-        if (fee != 0) poolManager.take(CurrencyLibrary.ADDRESS_ZERO, treasury, fee);
+        if (fee != 0) {
+            if (address(poolManager).balance >= fee) {
+                poolManager.take(CurrencyLibrary.ADDRESS_ZERO, treasury, fee);
+            } else {
+                poolManager.mint(address(this), 0, fee);
+                emit FeesDeferred(fee);
+            }
+        }
         emit FeeTaken(params.zeroForOne, ethAmount, fee, bps);
     }
 }

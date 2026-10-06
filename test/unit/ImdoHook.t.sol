@@ -12,11 +12,10 @@ import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 import {LocalV4} from "../utils/LocalV4.sol";
-import {AdamHook} from "../../src/AdamHook.sol";
+import {ImdoHook} from "../../src/ImdoHook.sol";
 import {HookMiner} from "../../script/utils/HookMiner.sol";
 
-/// @custom:x https://x.com/IaMaDamIMD
-contract AdamHookTest is LocalV4 {
+contract ImdoHookTest is LocalV4 {
     uint256 internal constant BPS = 10_000;
 
     // ------------------------------------------------------------------ deployment & permissions
@@ -24,7 +23,7 @@ contract AdamHookTest is LocalV4 {
     function test_addressCarriesExactlyTheRequiredFlags() public view {
         uint160 flags = uint160(address(hook)) & Hooks.ALL_HOOK_MASK;
         assertEq(flags, hook.requiredFlags());
-        assertEq(flags, deployScript.hookFlags());
+        assertEq(flags, uint160(0x20cc));
         assertTrue(Hooks.hasPermission(IHooks(address(hook)), Hooks.BEFORE_INITIALIZE_FLAG));
         assertTrue(Hooks.hasPermission(IHooks(address(hook)), Hooks.BEFORE_SWAP_FLAG));
         assertTrue(Hooks.hasPermission(IHooks(address(hook)), Hooks.AFTER_SWAP_FLAG));
@@ -35,14 +34,14 @@ contract AdamHookTest is LocalV4 {
 
     function test_constructorRejectsUnflaggedAddress() public {
         vm.expectRevert();
-        new AdamHook(poolManager, address(adam), address(treasury), hookOwner);
+        new ImdoHook(poolManager, address(imdo), address(treasury), hookOwner);
     }
 
     function test_initialState() public view {
         assertEq(hook.feeBps(), 150);
         assertEq(hook.owner(), hookOwner);
         assertEq(hook.treasury(), address(treasury));
-        assertEq(hook.adam(), address(adam));
+        assertEq(hook.imdo(), address(imdo));
         assertEq(hook.launchTimestamp(), 0);
         assertTrue(hook.initialized());
         assertEq(hook.currentFeeBps(), 2000, "20% at launch");
@@ -50,15 +49,15 @@ contract AdamHookTest is LocalV4 {
 
     // ------------------------------------------------------------------ pool initialization rules
 
-    function _freshHook(address owner_) internal returns (AdamHook fresh) {
-        bytes memory args = abi.encode(address(poolManager), address(adam), address(treasury), owner_);
+    function _freshHook(address owner_) internal returns (ImdoHook fresh) {
+        bytes memory args = abi.encode(address(poolManager), address(imdo), address(treasury), owner_);
         (address expected, bytes32 salt) =
-            HookMiner.find(address(this), deployScript.hookFlags(), type(AdamHook).creationCode, args);
-        fresh = new AdamHook{salt: salt}(poolManager, address(adam), address(treasury), owner_);
+            HookMiner.find(address(this), uint160(0x20cc), type(ImdoHook).creationCode, args);
+        fresh = new ImdoHook{salt: salt}(poolManager, address(imdo), address(treasury), owner_);
         assertEq(address(fresh), expected);
     }
 
-    function _keyFor(AdamHook h, address currency1, uint24 fee) internal pure returns (PoolKey memory) {
+    function _keyFor(ImdoHook h, address currency1, uint24 fee) internal pure returns (PoolKey memory) {
         return PoolKey({
             currency0: CurrencyLibrary.ADDRESS_ZERO,
             currency1: Currency.wrap(currency1),
@@ -69,8 +68,8 @@ contract AdamHookTest is LocalV4 {
     }
 
     function test_initializeRequiresOwner() public {
-        AdamHook fresh = _freshHook(hookOwner);
-        PoolKey memory key = _keyFor(fresh, address(adam), 3000);
+        ImdoHook fresh = _freshHook(hookOwner);
+        PoolKey memory key = _keyFor(fresh, address(imdo), 3000);
         vm.prank(alice);
         vm.expectRevert();
         poolManager.initialize(key, TickMath.getSqrtPriceAtTick(0));
@@ -83,14 +82,14 @@ contract AdamHookTest is LocalV4 {
     }
 
     function test_initializeOnlyOnce() public {
-        PoolKey memory second = _keyFor(hook, address(adam), 3000);
+        PoolKey memory second = _keyFor(hook, address(imdo), 3000);
         vm.prank(hookOwner);
         vm.expectRevert();
         poolManager.initialize(second, TickMath.getSqrtPriceAtTick(0));
     }
 
     function test_initializeRejectsWrongPair() public {
-        AdamHook fresh = _freshHook(hookOwner);
+        ImdoHook fresh = _freshHook(hookOwner);
         PoolKey memory wrong = _keyFor(fresh, address(imd), 0);
         vm.prank(hookOwner);
         vm.expectRevert();
@@ -99,12 +98,12 @@ contract AdamHookTest is LocalV4 {
 
     function test_callbacksRejectNonPoolManager() public {
         SwapParams memory p = SwapParams({zeroForOne: true, amountSpecified: -1e18, sqrtPriceLimitX96: 0});
-        vm.expectRevert(AdamHook.NotPoolManager.selector);
-        hook.beforeSwap(address(this), adamKey, p, "");
-        vm.expectRevert(AdamHook.NotPoolManager.selector);
-        hook.afterSwap(address(this), adamKey, p, BalanceDelta.wrap(0), "");
-        vm.expectRevert(AdamHook.NotPoolManager.selector);
-        hook.beforeInitialize(address(this), adamKey, 0);
+        vm.expectRevert(ImdoHook.NotPoolManager.selector);
+        hook.beforeSwap(address(this), imdoKey, p, "");
+        vm.expectRevert(ImdoHook.NotPoolManager.selector);
+        hook.afterSwap(address(this), imdoKey, p, BalanceDelta.wrap(0), "");
+        vm.expectRevert(ImdoHook.NotPoolManager.selector);
+        hook.beforeInitialize(address(this), imdoKey, 0);
     }
 
     // ------------------------------------------------------------------ fee schedule
@@ -165,12 +164,12 @@ contract AdamHookTest is LocalV4 {
 
     function test_feeCannotBeRaisedOrKept() public {
         vm.startPrank(hookOwner);
-        vm.expectRevert(abi.encodeWithSelector(AdamHook.FeeNotLower.selector, 150, 151));
+        vm.expectRevert(abi.encodeWithSelector(ImdoHook.FeeNotLower.selector, 150, 151));
         hook.lowerFee(151);
-        vm.expectRevert(abi.encodeWithSelector(AdamHook.FeeNotLower.selector, 150, 150));
+        vm.expectRevert(abi.encodeWithSelector(ImdoHook.FeeNotLower.selector, 150, 150));
         hook.lowerFee(150);
         hook.lowerFee(50);
-        vm.expectRevert(abi.encodeWithSelector(AdamHook.FeeNotLower.selector, 50, 100));
+        vm.expectRevert(abi.encodeWithSelector(ImdoHook.FeeNotLower.selector, 50, 100));
         hook.lowerFee(100);
         vm.stopPrank();
     }
@@ -224,16 +223,15 @@ contract AdamHookTest is LocalV4 {
         BalanceDelta d = buyExactOut(want, 5 ether);
         uint256 poolIn = address(poolManager).balance - pmBefore;
         uint256 fee = address(treasury).balance - tBefore;
-        assertEq(d.amount1(), int256(want), "exact ADAM out");
+        assertEq(d.amount1(), int256(want), "exact IMDO out");
         assertEq(fee, (poolIn * 150) / (BPS - 150), "fee is 1.5% of gross buyer spend, rounded down");
         assertEq(uint256(uint128(-d.amount0())), poolIn + fee, "buyer pays pool amount plus fee");
     }
 
     function test_sellExactInput_takes1_5PercentOfEthOut() public {
         warpPastDecay();
-        buyExactIn(2 ether);
-        uint256 adamBal = adam.balanceOf(address(this));
-        uint256 sellAmount = adamBal / 2;
+        uint256 imdoBal = uint256(uint128(buyExactIn(2 ether).amount1()));
+        uint256 sellAmount = imdoBal / 2;
 
         uint256 tBefore = address(treasury).balance;
         uint256 pmBefore = address(poolManager).balance;
@@ -273,7 +271,7 @@ contract AdamHookTest is LocalV4 {
     function test_feeEventsAreEmitted() public {
         warpPastDecay();
         vm.expectEmit(true, false, false, true, address(hook));
-        emit AdamHook.FeeTaken(true, 1 ether, 0.015 ether, 150);
+        emit ImdoHook.FeeTaken(true, 1 ether, 0.015 ether, 150);
         buyExactIn(1 ether);
     }
 }

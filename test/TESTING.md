@@ -1,36 +1,33 @@
-# Verification
+# Testing
 
-Use the existing Solidity 0.8.26 Foundry profile:
+The unchanged Foundry configuration pins Solidity 0.8.26 and separates local and mainnet-fork profiles. Tests never read or set environment variables. There are no added dependencies.
 
-```sh
+```
 forge build
 forge test
 forge fmt --check
-FOUNDRY_PROFILE=fork forge test -vv --threads 1 --compute-units-per-second 50
+FOUNDRY_PROFILE=fork forge test
 ```
 
-Default tests are offline and deterministic. Fork tests are excluded by the existing default configuration; the fork profile uses public mainnet RPC with hard-coded pinned blocks and visibly fails if RPC is unavailable. No test reads or changes environment variables. No FFI or filesystem permission is needed.
+The last command deliberately selects network-dependent tests. Its RPC is an explicit public URL and its mainnet block is pinned to 26,126,549; it is excluded from ordinary offline verification. The profile selection is a shell option, not an environment read inside a test.
 
-New coverage:
+Coverage:
 
-| Suite | Coverage |
+| Suite | Evidence |
 |---|---|
-| NFTClaim | daily boundaries, launch/expiry, current ownership, transfer of remaining rights, operator rejection, invalid/post-snapshot IDs, atomic batches, duplicates, claim-and-stake, exclusions, burned IDs, burn deadline, unlock conservation fuzz |
-| AdamSplitOracle | signed weights, clamping, sum/bounds fuzz, malformed ABI fuzz, signature/chain/domain/question/reason failures, quorum, future/stale/expired reports, monotonic/replay guards, exact 26h boundary, equal fallback |
-| OraclePublicVector | exact EIP-712 compatibility with a published IMD v2 signature, and rejection as an unrelated reward report |
-| AdamExtension | all three legs, pull rewards/team, buy-on-claim, wallet transfer lock, minOut/deadline rollback, unauthorized claims, direct switch, old ETH claims after switch, stale split, retries/three-leg reroute, revoked whitelist, callback guards, backlog/new staker accounting, bounty/conservation fuzz |
-| ExtensionAdversarial | NFT stake reentry, keeper reentry, independently claimable assets after token relock, principal availability, two-staker ETH conservation fuzz |
-| ExtensionDeploy | existing token/supply preservation, exactly 11% funded, mutual address wiring, immutable NFT exclusion, signer simulation via run(Config), both funding paths, wrong chain/missing token/invalid snapshot failures |
-| IMDSTRFork | block 26,127,182: pool key/state/liquidity, proxy implementation/hook, onchain NFT counts, PoolManager not whitelisted, EOA buy-on-claim, exact 10% hook tax from raw Swap versus net delivery, wallet InvalidTransfer(), simulated owner whitelist/direct distribution |
+| LaunchToken | Fixed supply, metadata, exact transfer, missing admin/mint paths, conservation fuzz |
+| ImdoHook / HookAdversarial / Revision | Adapted ADAM fee and permission tests, all four swap modes, decay boundaries, lowering-only authority, two-step ownership, partial/empty-fill rollback, conservation fuzz |
+| HookDeferredFees | Fresh token-only PoolManager with zero ETH, exact-input and exact-output buys, retained fee claims, permissionless redemption, failed redemption rollback and callback authentication |
+| ImdoStaking | IMD pro rata, 24-hour locks, claim-only stakeFor, lifetime REGEN credit, no ETH holder claims, gated backlog/pause/restart, custody bounds, rejected/reentrant withdrawal rollback, credit fuzz |
+| DistributorAdversarial | Adapted ADAM six-decimal/no-return/false-return/taxed/paused token tests, reentry on intake and payout, principal withdrawal independent of reward failure, fixed exclusions, conservation fuzz |
+| ImdoTreasury | Exact split/bounty, cap overflow and epoch roll, cap authority/bounds, notification retries without duplicate accrual/bounty, atomic failed buy/notification, halving retries, checkpoint recovery, deferred keeper bounty, failed/reentrant pull payments, cooldown and callback guards |
+| TreasuryFuzz | Processing cap and whole-system ETH conservation |
+| ImdoClaim | Owner-only seats and post-transfer rights, ownership events, duplicate IDs, holder proof/total/address binding, repeat claims, zero root, stake lock, launch/deadline and unclaimed disposal |
+| ImdoDeploy | Real local PoolManager and PositionManager, allowance-only Permit2 stand-in, claim prediction, one dead-owned LP NFT, token allocation, cleared approvals, manual broadcast simulation through a different caller, preflight failure |
+| StakingInvariant | Guided randomized stake/unstake/claim/reward/time/withdraw sequences; ghost balances, principal conservation, reward solvency, lifetime credit monotonicity and cumulative ETH custody bound |
+| TreasuryInvariant | Guided funding, processing, keeper/pull claims, cap changes and withdrawals; complete ETH conservation and owed/pending identity |
+| MainnetFork | Actual mainnet IMD buy, minimum output, reward notification and staker claim |
 
-All original token/hook/distributor/treasury, adversarial, fuzz and invariant suites remain. The parent mainnet suite retains block 26,126,549 and now uses an explicit RPC instead of reading the environment. It covers IMD/PNKSTR tax/floors, original hooked single-sided launch and fee/staking integration.
+The invariant suites use 128 sequences with depths 64 (staking) and 48 (treasury), and fail on unexpected handler reverts. The retained hook/adversarial fuzz tests use the base's 1,000-run settings where present. Other fuzzing uses the unchanged 256-run default.
 
-Final results:
-
-- `forge build`: passed with Solidity 0.8.26.
-- `forge test`: **151 passed, 0 failed, 0 skipped**, across 20 suites. New fuzz tests each use 256 runs; the original suites retain their fuzz/invariant settings.
-- `forge fmt --check` and `git diff --check`: passed.
-- Pinned mainnet forks: **10 passed, 0 failed** across the four new IMDSTR/NFT tests and six original integration tests. The 1 ETH IMDSTR buy delivered 3,432,834.287892671935600222 tokens against a 3,371,166.235868870877848721-token floor.
-- All four new production contracts fit EIP-170's 24,576-byte deployed-code limit; largest is TreasuryV2 at 12,192 bytes.
-
-Fork endpoints: the new suite uses `https://eth-pokt.nodies.app`; the original suite uses `https://mainnet.gateway.tenderly.co`. Earlier providers lacked historical state or rate-limited requests. These are external RPC failures, not skipped tests; the final suites passed against public archive providers. Use the documented single-thread/request-rate options. Public RPC availability is not guaranteed; substituting another archive endpoint leaves the pinned blocks and assertions intact.
+The Permit2 stand-in checks allowance, expiration and transfer amount; it does not demonstrate production signature handling. The actual mainnet integration covers the IMD buy, while an operator must rehearse the full deployment against the target chain. The tests are not an independent security assessment. See docs/REVIEW.md for recorded results and limitations.

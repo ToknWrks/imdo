@@ -1,77 +1,90 @@
-# ADAM
+# IMD Offsets (IMDO)
 
-Official X: **https://x.com/IaMaDamIMD**
+IMDO is a fork of the supplied **ADAM** repository, under the MIT license. It retains the Foundry layout, vendored dependencies, custom errors, reentrancy guards, reward accumulator, seven-day backlog, pull payments, fee calculations and adapted regression tests. No transactions were broadcast.
 
-Plain ERC-20 **ADAM**, fixed 1,000,000,000 supply; staking, fee hook, immutable Treasury, NFT claims and three reward assets. Nothing was broadcast by this work. No token was redeployed or re-minted. The accepted hook still charges ETH on buys/sells, decaying from 20% to 1.5% over the first 30 minutes of trading; its owner may only lower the final fee.
+**1,000,000,000 IMDO**, 18 decimals, are created once for the deploying account. `IMDOToken` inherits `LaunchToken` without constructor arguments. The token has no administrator, further issuance, transfer tax or upgrade mechanism.
 
-## Existing deployment and this continuation
+Trades on the designated hooked ETH/IMDO pool pay an ETH fee. That fee buys IMD for IMDO stakers, funds off-chain REGEN purchases for stakers, ecological-credit retirement, and operations. Wallet balances alone do not participate: holders must stake.
 
-The supplied deployment record is **Sepolia (11155111)**: ADAM `0x9a9d76ff61aaa11344f43915c16c58a7ca04bc42`, Distributor `0x77d42237c9273bf0bcc5aacbb315edcf0b132041`, Treasury `0x747588e4b4e0808f6029e768589e193605f4ce18`. These contracts remain unchanged onchain. They do **not** acquire this source revision's features. Build the original commit's ABIs for the original deployment, not these revised artifacts.
+## Changes from ADAM
 
-The requested NFTs and IMD/PNKSTR/IMDSTR pools are **Ethereum mainnet** contracts. No verified existing mainnet ADAM address was supplied. This repository supplies tested extensions and a manual deployment script; it does not invent a cross-chain token, bridge Sepolia funds, or mint a replacement. A production activation needs a reviewed same-chain deployment configuration and an existing ADAM balance of at least 110,000,000. The mainnet preset intentionally requires an existing token address; passing the known Sepolia address on mainnet fails validation.
+- Renamed the application to `ImdoHook`, `ImdoStaking`, `ImdoTreasury` and `ImdoClaim`; removed the former alternate-asset routes, signed allocation component, extension variants and social metadata tags.
+- Preserved the hook's fee amounts: 20% at the first successful nonempty swap, linearly decreasing over 30 minutes to 1.5%. Its owner can only lower the final rate. When the manager lacks enough ETH, fees become ERC-6909 claims held by the hook; anyone can redeem them to the fixed treasury after settlement.
+- Reduced staking to IMD and a lifetime REGEN credit denominated in ETH. Added the 24-hour lock, claim-only `stakeFor`, and bounded REGEN custodian withdrawals. Removed staking swaps and direct-distribution switches.
+- Replaced variable splits with the fixed allocations below, separate operations/retirement pull payments, and an epoch cap for REGEN. Removed rerouting and added gradual checkpoint relaxation to prevent indefinite purchase stalls after price changes.
+- Replaced the second NFT collection with a fixed holder Merkle root. Seat ownership follows `ownerOf`; `seatClaimedBy` records each new claiming owner.
+- Replaced environment-based deployment with an explicit configuration and manual signer. The LP NFT goes directly to the dead address. Deployment funds the claim contract and starts two-step hook ownership transfer.
 
-Legacy `AdamDistributor` and `AdamTreasury` behavior and the original regression suites remain available. New deployments use `AdamDistributorV2`, `AdamTreasuryV2`, `AdamSplitOracle`, and `NFTClaim`. Shared legacy code received only extension access points and immutable ERC-7572 metadata; token/hook economics remain intact. The [parent README](docs/LEGACY_README.md) is historical context, including its factory/custom-hook limitation.
+`foundry.toml` is unchanged, including **`bytecode_hash = "none"`**, Solidity **0.8.26**, Cancun, IR compilation, and optimizer settings. No new dependencies were installed.
 
-## NFT allocation and claims
+## ETH accounting
 
-`NFTClaim` is funded with **110,000,000 existing ADAM**:
+For 1 ETH of newly processed fees, the keeper receives 0.005 ETH. The remaining 0.995 ETH is allocated as follows:
 
-| Collection | Allocation | Frozen count | Eligible token IDs | Full share per NFT |
-|---|---:|---:|---|---:|
-| IMD `0x0000ec93127baa929e58e97dd0095a2bfb38ec1d` | 100,000,000 | 2,000 | 0–1,999 | 50,000 ADAM |
-| Swarm Pepe `0x999ce0ce8c5f7661e0c74a568ffe27ceb9177bdb` | 10,000,000 | 1,178 | 1–1,178 | floor(10,000,000e18 / 1,178) atomic units |
+| Destination | Net basis points | ETH |
+|---|---:|---:|
+| Operations | 1000 | 0.0995 |
+| Ecological-credit retirement | 2500 | 0.24875 |
+| Off-chain REGEN purchases | 2500 | 0.24875 |
+| IMD purchases | 4000 | 0.398 |
 
-Counts were read onchain at mainnet block **26,127,182**. Swarm Pepe exposes `totalMinted()`, not `totalSupply()`, and may mint beyond this snapshot: later IDs are ineligible. IMD was fully minted. Both ranges and counts are immutable at construction; [snapshot evidence](docs/MAINNET_SNAPSHOT.json) records the reads. The deploy script rechecks that the deployment chain's minted counts cover the frozen ranges.
+Integer split dust belongs to the IMD leg. REGEN accrual is limited per `block.timestamp / 7 days` epoch, initially 0.5 ETH. Excess joins the IMD pending balance immediately. Only `regenSafe` can change that cap, within immutable bounds of 0.05–5 ETH. Lowering it below the amount already accrued does not take back past credits; it leaves no further capacity that epoch. Pending notifications already consumed their original epoch's capacity; a retry never consumes it again.
 
-At the configured `launch` timestamp each tokenId unlocks 10% of its share, then another 10% every 24 hours: day 0 = 10%, day 1 = 20%, … day 9 = 100%. Claims close at **launch + 39 days** (full unlock + 30 days). Integer rounding is less than one atomic unit per vesting calculation; allocation division dust remains for the final burn.
+`process()` has a 600-second cooldown. It processes at most `maxEthPerBuy * 10000² / (4000 * 9950)` of new ETH each time (about 2.5126 ETH with the default 1 ETH buy cap). Additional ETH stays unsplit. Each IMD buy is capped at 1 ETH; failed attempts halve the next cap down to 1 gwei. Dust waits, and nothing is rerouted. The swap and IMD notification are atomic, while REGEN notification failure stays pending independently. Keeper bounties apply only to newly split ETH. A rejected bounty becomes a pull balance.
 
-- Current `ownerOf(tokenId)` calls `claim(collection, tokenIds)` or `claimAndStake(collection, tokenIds)`, where collection 0 is IMD and 1 is Swarm Pepe. Two collections need two calls. Approved operators cannot claim another owner's allocation.
-- Batches atomically validate ownership. Repeated IDs cannot claim twice. Selling an NFT transfers its future/unclaimed entitlement; amounts already claimed stay recorded against the ID.
-- `claimAndStake` credits ADAM stake to the claimant with an exact, cleared allowance. NFTClaim is permanently excluded from earning staking rewards.
-- At the deadline anyone can call `burnUnclaimed()` to transfer the remaining ADAM, including burned/unclaimed NFT entitlements and dust, to `0x000000000000000000000000000000000000dEaD`. It does not reduce ERC-20 totalSupply. No administrator can withdraw funds or alter parameters.
+The IMD minimum output uses the larger of spot sqrt-price and `checkpoint * 7 days / (7 days + checkpoint age)`, accounting for directional protocol and LP fees, then 300 bps slippage. Construction and successful buys establish checkpoints. There is no administrative repricing. This preserves a same-block reference while gradually accommodating a sustained market move. It is not an independent market-price feed; manipulation, transaction ordering, pool depletion and unavailable tokens remain operational risks. A missing dependency or uninitialized pool prevents processing before any split.
 
-The NFT launch time is an explicit deployment parameter, independent of the hook's first-filled-swap clock. Choose it in the future and fund before it. Existing holders must fund this allocation; the script never takes tokens from old pools or old stakers.
+Treasury ETH equals operations owed + retirement owed + keeper owed + IMD pending + REGEN pending + unsplit ETH. Staking ETH is at least notified REGEN ETH minus withdrawn REGEN ETH; forced ETH cannot enlarge the custodian's withdrawal allowance.
 
-## Staking and rewards
+## Staking and claims
 
-Approve V2 Distributor and `stake(amount)`. `unstake(amount)` always returns principal without forcing reward claims. Fresh rewards accrue pro rata to current stake. No-stake rewards, including IMDSTR ETH, retain the original seven-day backlog stream, gated by at least 10,000,000 staked ADAM; falling below the threshold pauses it. Just-in-time staking of fresh rewards remains possible.
+Every successful `stake` or `stakeFor` restarts the beneficiary's entire position's 24-hour withdrawal lock. IMD claims are available during the lock. `unstake` preserves accrued rewards; `exit` combines withdrawal and IMD claim. A failed IMD claim can be avoided by using `unstake` separately after the lock.
 
-- `claim()` pulls IMD, PNKSTR and any transferable direct-mode IMDSTR. `exit()` also withdraws all principal. Neither silently buys IMDSTR with an arbitrary slippage tolerance.
-- `earned(wallet, address(0))` is the wallet's **ETH budget for IMDSTR**, not withdrawable native ETH. Call `claimIMDSTR(ethAmount, minOut, deadline)` to spend up to the per-claim cap (default 1 ETH). Supply a nonzero minimum output and an unexpired deadline; the v4 PoolManager takes tokens **directly to msg.sender**. Failed/partial swaps revert without consuming the claim. Repeat for a larger budget.
-- `earned(wallet, token)` reports token rewards. `claimReward(token)` pulls an individual asset, so one locked reward cannot block other rewards or principal.
-- If the IMDSTR owner whitelists the Distributor using `setDistributor(distributor, true)`, anyone may call `enableDirectDistribution()` **once**. New IMDSTR budgets then buy directly into the Distributor and accrue as tokens. Old ETH claims retain their denomination and buy-on-claim path. The switch is irreversible; the external token owner can revoke the whitelist or upgrade the proxy, which can lock direct IMDSTR rewards until permissions recover.
+Rewards notified without stake enter ADAM's seven-day backlog. Streaming begins only with at least 10,000,000 IMDO staked. Dropping below that threshold pauses it; regaining the threshold restarts the remaining reserve over seven days. New rewards with any existing stake distribute immediately. Newcomers receive no credit for past stream time. Rounding dust stays in custody. Fixed exclusions are zero, dead, staking itself, IMDO, IMD, the manager, the claim address and the REGEN safe.
 
-IMDSTR pool: native ETH / `0x80271ce20184e38f4afe90d4ca134304d197aca2`, fee **0**, spacing **60**, hook `0x66b05c8eeca9329f7a2332c02ce3855cfab72444`; measured **10% output tax**, in addition to any price impact. PoolManager is not a whitelisted distributor. Mainnet fork tests demonstrate EOA receipt, the `InvalidTransfer()` wallet-transfer failure, and direct mode after a simulated owner whitelist.
+`regenCreditOf(account)` measures lifetime credit, including vested backlog, and is never spent by `claim`, `claimReward`, `exit`, `unstake` or custodian withdrawals. Only the safe withdraws REGEN ETH, up to cumulative notifications, including notifications received with no stake. That safe must keep an external ledger of credits already fulfilled, publish purchase receipts and conversion amounts, and distribute purchased REGEN to stakers. The contracts neither buy REGEN nor verify its delivery. The offsets safe similarly handles ecological-credit purchases and retirement receipts off-chain. These are explicit custody responsibilities.
 
-## Fee processing and signed splits
+`ImdoClaim` receives 110,000,000 IMDO:
 
-Anyone calls V2 Treasury `process()`, normally hourly (minimum cooldown 600 seconds). The caller gets **0.5% of newly processed ETH**, once. The remaining 99.5% is split **90% holders / 10% team**. Example: 1 ETH → 0.005 ETH bounty, 0.0995 ETH team, 0.8955 ETH holders. Bounty is charged on new allocation, even if a buy is deferred; retries/reroutes never earn another bounty. A rejecting caller accrues a reserved `keeperOwed` balance and can pull it with `claimKeeper(recipient)`. The team itself calls `payTeam()`. Staker tokens are always pulled by their owners.
+| Allocation | Amount | Eligibility |
+|---|---:|---|
+| Seats | 100,000,000 | Current owners of IDs 0–1999 of `0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D` |
+| Holders | 10,000,000 | Addresses and totals committed to the immutable holder root |
 
-Holder allocations use the newest valid IMD Oracle v2 report. Immutable signer and canonical questionHash; 26-hour maximum age; signature, domain, reason hash, panel quorum, expiry and replay checks; weights clamped to **1500–7000 bps each**, summing to 10000. Missing/stale reports give **3333/3333/3334** (last wei goes to IMDSTR). Invalid submissions cannot evict a still-valid signed report. The effective split emits `SplitUpdated(imdBps,pnkstrBps,imdstrBps,reportId,reasonHash,source)` from AdamSplitOracle on processing. `source=0` is fallback, `source=1` is signed. The daily policy favors the weakest 24-hour performer unless liquidity/risk signals intervene; see the complete [heartbeat specification and prompt](docs/HEARTBEAT.md).
+Each seat has 50,000 IMDO. Ten percent unlocks at `launch`, then another ten percent each day through day nine. Claims close exactly at `launch + 39 days`. Seat claims require the caller to own every supplied ID; approved operators cannot claim. Duplicates cannot pay twice. Transferring a seat transfers its remaining entitlement. A new owner may record ownership in a claim with no newly vested amount; a repeated call with neither a new owner nor an amount reverts.
 
-All three legs retain independent 1 ETH attempt caps, 3% slippage floors below the greater of checkpoint and spot output after pool fees/hook tax, halving retries down to 1 gwei, and rerouting only after at least four failures spanning three days, without gaps over two hours (or configured cooldown if longer). Dust waits. Rerouting prefers a healthy alternate leg and can change the eventual mix. IMDSTR normally **accrues ETH without swapping**; its automatic swap/floor/retry logic applies once direct mode is enabled. An already-accrued user's ETH cannot be seized or rerouted: they can retry their own claim with suitable slippage if that pool recovers.
+Holder leaves use `keccak256(bytes.concat(keccak256(abi.encode(account, total))))` and OpenZeppelin sorted-pair proofs. The root must contain one total per address, summing to at most 10,000,000e18. A global payment bound also protects the seat reserve if the root is misconfigured. A zero root disables holder claims. Either claim can stake through `stakeFor`, using an exact allowance that is cleared afterward. Anyone may call `burnUnclaimed` after the deadline: ADAM's burn convention transfers leftovers to `0x000000000000000000000000000000000000dEaD`, without changing the fixed ERC-20 supply.
 
-Every leg's swap **and** reward notification share an atomic failure boundary. Checkpoints move only after actual successful buys; ETH accrual does not move the IMDSTR checkpoint. These floors are circuit breakers, not independent price oracles; sustained adverse price moves can defer trades. The external oracle signs allocation weights, not execution prices. Use private transaction submission and realistic minOut values for claims.
+## Who can call what
 
-## Deployment and operation
+| Actor | Authority |
+|---|---|
+| Any non-excluded holder | Stake; claim IMD; unstake or exit after its lock |
+| Anyone | Fund IMD/REGEN rewards; process treasury ETH; flush IMD to staking; redeem deferred hook fees to treasury; burn expired claim funds |
+| Current seat owner / proven holder | Claim its own vested allocation, optionally staking it |
+| Immutable claim address | Call `stakeFor` on behalf of beneficiaries |
+| Operations wallet | Pull only `opsOwed` |
+| Offsets safe | Pull only `offsetsOwed` |
+| REGEN safe | Change only the REGEN cap within bounds; withdraw only notified REGEN ETH to itself |
+| Keeper | Pull its own rejected bounty to a chosen recipient |
+| Hook owner | Initialize the one pool; lower the steady fee; start ownership transfer or renounce ownership |
+| Pending hook owner | Accept the two-step ownership transfer |
+| PoolManager | Invoke active hook callbacks and authorized unlock callbacks |
 
-`script/DeployAdamExtension.s.sol` accepts a complete `Config` as arguments; no secrets, environment reads, FFI or filesystem cheatcodes. `mainnetConfig(existingAdam, deployer, team, launch, questionHash)` supplies the observed mainnet defaults. `run(Config)` records the reviewed actions for a manual signer; without an explicit user-run `--broadcast`, Foundry only simulates. This assignment ran tests/simulations only.
+The staking, treasury and claim contracts have no owner, upgrades, rescue withdrawals or configurable beneficiaries. `setRegenCap` is the treasury's sole setter. The hook recipient and token are immutable. If its recipient rejects ETH, the original direct payment path can block fee-bearing swaps when the manager is funded; failed deferred redemption preserves the claim. The script's treasury has a bare payable receive function.
 
-The script validates chain/token identity and fixed supply, checks the funding balance and NFT counters, deploys the oracle and V2 Distributor, predicts/excludes NFTClaim's CREATE address, deploys NFTClaim and V2 Treasury, and funds exactly 11%. The unit suite calls both `deploy(Config)` and `run(Config)` directly with explicit creators. A separate funder must approve exactly 110,000,000 ADAM; when creator=funder the signer transfers its own tokens directly. All components are immutable, so review constructor data and code before funding. Script execution is multiple manual transactions: after any interruption, inspect deployed contracts and completed transfers before resuming.
+## Networks, manifest and manual deployment
 
-The old hook's Treasury is immutable. The new Treasury does not take over existing fees automatically. To activate a new fee-bearing pool without changing ADAM, the original `DeployAdam` **hook-only** path accepts the new V2 Treasury in `TREASURY` and the existing token in mandatory `ADAM_TOKEN`; it mines the same AdamHook and can seed a reviewed, ADAM-only position from the owner's remaining balance. The NFT allocation must be reserved first (at most 890,000,000 of the original supply remains for all other uses). Existing pools/positions remain untouched. No custom pool or liquidity migration was executed here. Frontends/routers must explicitly use the new hooked PoolKey; the factory pool and other hookless pools do not pay these fees.
+The requested network context is **11155111 (Sepolia)**. Ethereum mainnet (**1**) is the real manual target. The required manifest manager and IMD literals had no code on Sepolia when checked on 2026-10-07. Constructors support inspection without external chain state, but this does **not** make that manifest an operational Sepolia fee pipeline. Do not fund it. The script checks chain, dependency code, manager/position-manager/Permit2 compatibility, and initialized liquid IMD pool before creating the token.
 
-The deployer records final addresses/PoolKeys and ABIs, verifies code, confirms oracle signer/canonical questionHash and service consumer domain, chooses claim launch time and team beneficiary, funds the heartbeat, and arranges keeper calls. IMDSTR whitelist authority remains with its external token owner. An independent adversarial review remains required before release with real funds. Distributor/Treasury expose immutable ERC-7572 `contractURI()` data URIs; ADAM remains a plain ERC-20. First-party contracts include `@custom:x`.
+`launch.json` has no `chainId` root property. It lists `IMDOToken`, then flat-constructor `ImdoStaking` (5 arguments), then `ImdoTreasury` (15). Because later references are unsupported, its claim address and all three wallets are `$owner`. That immutable staking instance cannot later be connected to a different claim contract. `ImdoHook` and `ImdoClaim` are deployed only by the manual script.
+
+The manifest's factory supplies its own allocation and initialization-only pool guard. It cannot attach the custom fee hook or reproduce the manual 890-million/110-million distribution. Its fee 3000 is the admission value; the live factory fee and opening price follow network policy. Fees from that pool do not flow to this treasury. The complete manual system is a separate fresh deployment; its frontend must pin its exact hooked PoolKey.
+
+Use `script/DeployImdo.s.sol:DeployImdo`, passing the complete `Config` tuple to `run`. All external addresses, expected chain, opening tick, holder root and launch timestamp are arguments. No environment lookup or private key appears in the script. Select your signer manually in Foundry; simulate first and supply `--broadcast` only during the separately authorized deployment. [Deployment parameters and CLI signature](docs/DEPLOYMENT.md) describe the handoff.
+
+The script creates token → staking with predicted claim address → claim → treasury → mined hook; initializes ETH/IMDO; seeds one IMDO-only position with a budget of 890,000,000 tokens and sends its LP NFT to dead; funds claims with 110,000,000; disposes of integer liquidity dust to dead; clears approvals; starts hook ownership transfer. Pool LP fee is zero and spacing is 60, as in ADAM's manual pool. Its lower tick is opening tick minus 69,060. The LP NFT cannot be recovered. The new hook owner must separately accept ownership. Preflight verifies code and liquidity, not the economic fairness of the opening price or holder list.
 
 ## Verification
 
-```sh
-forge build
-forge test
-forge fmt --check
-FOUNDRY_PROFILE=fork forge test -vv --threads 1 --compute-units-per-second 50
-```
-
-Default tests run offline with the existing pinned **Solidity 0.8.26**, dependencies and Foundry configuration. Fork tests are explicitly separated by the existing profile and use public RPC plus pinned blocks; no tests read/set environment variables. The fork suites use public Nodies/Tenderly archive endpoints and fail visibly on network failure. No dependencies or build configuration changed.
-
-See [test coverage](test/TESTING.md), [self-audit](SELF_AUDIT.md), and [mainnet evidence](docs/MAINNET_SNAPSHOT.json).
+Run `forge build`, `forge test`, and `forge fmt --check` using the unchanged configuration. The default tests run without RPC access or environment variables. `test/fork/` is excluded by the supplied configuration; the explicit fork profile tests actual mainnet IMD purchases at a pinned block. Test coverage, imported-finding reproductions and remaining validation limits are recorded in [test/TESTING.md](test/TESTING.md) and [docs/REVIEW.md](docs/REVIEW.md). Test success is not an independent security assessment. Independent review and a same-chain deployment rehearsal remain release responsibilities.

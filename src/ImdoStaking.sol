@@ -5,34 +5,37 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
-import {IAdamDistributor} from "./interfaces/IAdamDistributor.sol";
+import {IImdoStaking} from "./interfaces/IImdoStaking.sol";
 
-/// @title AdamDistributor
-/// @notice Pull-based, multi-token dividend-per-share distributor for ADAM holders.
-///
-/// Holders stake ADAM here (1:1, withdrawable at any time, no lock, no fee) and earn every reward token
-/// (IMD and PNKSTR) pro-rata to their staked balance from the moment they stake. Rewards are credited
-/// with the classic "reward per share" accumulator and claimed by the holder (pull), never pushed.
-///
-/// @dev Why staking instead of hooking every ADAM transfer: the launch token is required to be a plain
-/// ERC-20 with no transfer hooks and no constructor arguments, so it cannot call back into this contract
-/// on transfer. Staking gives exact accounting with no stale-balance window, which an unsynchronised
-/// "shadow balance" scheme cannot. See README "What differs from the brief".
-///
-/// Trust model: no owner, no upgrade, no sweep. Anyone may call `notifyReward` for a configured reward
-/// token (it only ever adds rewards). The excluded set is fixed at construction.
-/// @custom:x https://x.com/IaMaDamIMD
-contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
+/// @title ImdoStaking
+/// @notice ADAM accumulator and gated backlog, reduced to IMD and lifetime REGEN ETH credits.
+/// @dev No owner or upgrade. All principal stakes reset a 24-hour withdrawal lock.
+contract ImdoStaking is IImdoStaking, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /// @dev Scaling factor for the per-share accumulator.
     uint256 private constant MAGNITUDE = 2 ** 128;
     uint256 public constant BACKLOG_DURATION = 7 days;
-    /// @notice Backlog streams only while at least 1% of the fixed ADAM supply is staked.
+    /// @notice Backlog streams only while at least 1% of the fixed IMDO supply is staked.
     uint256 public constant MIN_BACKLOG_STAKE = 10_000_000e18;
     address private constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
-    IERC20 public immutable adam;
+    IERC20 public immutable imdo;
+    address public immutable imd;
+    address public immutable poolManager;
+    address public immutable claimContract;
+    address public immutable regenSafe;
+    uint256 public constant LOCK_DURATION = 24 hours;
+    mapping(address => uint256) public unlockTime;
+    uint256 public totalRegenNotified;
+    uint256 public totalRegenWithdrawn;
+    error OnlyClaim();
+    error OnlyRegenSafe();
+    error StakeLocked(uint256 availableAt);
+    error InsufficientRegen();
+    error RegenTransferFailed();
+    event RegenNotified(address indexed from, uint256 amount, uint256 distributed);
+    event RegenWithdrawn(uint256 amount);
 
     address[] internal _rewardTokens;
     mapping(address token => bool) public isRewardToken;
@@ -42,7 +45,7 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
     uint256 public totalStaked;
     mapping(address account => uint256) public stakedBalance;
 
-    /// @notice Accumulated reward per staked ADAM, scaled by MAGNITUDE.
+    /// @notice Accumulated reward per staked IMDO, scaled by MAGNITUDE.
     mapping(address token => uint256) public rewardPerShare;
     /// @notice Undistributed launch/empty-stake rewards, released through a gated seven-day stream.
     mapping(address token => uint256) public unallocated;
@@ -73,52 +76,48 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
     error InsufficientStake();
     error DuplicateRewardToken();
 
-    /// @param adam_ The ADAM token.
-    /// @param rewardToken0 First reward token (IMD).
-    /// @param rewardToken1 Second reward token (PNKSTR).
-    /// @param poolManager The Uniswap v4 PoolManager (excluded from staking).
-    /// @param excludedExtra An additional address to exclude (pass address(0) if none).
-    constructor(address adam_, address rewardToken0, address rewardToken1, address poolManager, address excludedExtra) {
+    constructor(address imdo_, address imd_, address manager_, address claim_, address regenSafe_) {
         if (
-            adam_ == address(0) || rewardToken0 == address(0) || rewardToken1 == address(0) || poolManager == address(0)
-        ) {
-            revert ZeroAddress();
-        }
-        if (rewardToken0 == rewardToken1) revert DuplicateRewardToken();
-        adam = IERC20(adam_);
-
-        _rewardTokens.push(rewardToken0);
-        _rewardTokens.push(rewardToken1);
-        isRewardToken[rewardToken0] = true;
-        isRewardToken[rewardToken1] = true;
-
+            imdo_ == address(0) || imd_ == address(0) || manager_ == address(0) || claim_ == address(0)
+                || regenSafe_ == address(0)
+        ) revert ZeroAddress();
+        if (imdo_ == imd_) revert DuplicateRewardToken();
+        imdo = IERC20(imdo_);
+        imd = imd_;
+        poolManager = manager_;
+        claimContract = claim_;
+        regenSafe = regenSafe_;
+        _rewardTokens.push(imd_);
+        _rewardTokens.push(address(0));
+        isRewardToken[imd_] = true;
         isExcluded[address(0)] = true;
         isExcluded[DEAD] = true;
         isExcluded[address(this)] = true;
-        isExcluded[adam_] = true;
-        isExcluded[poolManager] = true;
-        isExcluded[rewardToken0] = true;
-        isExcluded[rewardToken1] = true;
-        if (excludedExtra != address(0)) isExcluded[excludedExtra] = true;
+        isExcluded[imdo_] = true;
+        isExcluded[manager_] = true;
+        isExcluded[imd_] = true;
+        isExcluded[claim_] = true;
+        isExcluded[regenSafe_] = true;
     }
 
     // ---------------------------------------------------------------------------------------------
     // Holder actions
     // ---------------------------------------------------------------------------------------------
 
-    /// @notice Stake ADAM to start earning. Requires prior approval.
+    /// @notice Stake IMDO to start earning. Requires prior approval.
     function stake(uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
         if (isExcluded[msg.sender]) revert Excluded(msg.sender);
         _settle(msg.sender);
         stakedBalance[msg.sender] += amount;
         totalStaked += amount;
+        unlockTime[msg.sender] = block.timestamp + LOCK_DURATION;
         _syncBacklogStreams();
         emit Staked(msg.sender, amount);
-        adam.safeTransferFrom(msg.sender, address(this), amount);
+        imdo.safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    /// @notice Withdraw staked ADAM. Accrued rewards stay claimable.
+    /// @notice Withdraw staked IMDO. Accrued rewards stay claimable.
     function unstake(uint256 amount) external nonReentrant {
         _unstake(amount);
     }
@@ -128,7 +127,7 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
         _claim(msg.sender);
     }
 
-    /// @notice Withdraw all staked ADAM and claim every reward in one call.
+    /// @notice Withdraw all staked IMDO and claim every reward in one call.
     function exit() external nonReentrant {
         uint256 balance = stakedBalance[msg.sender];
         if (balance != 0) _unstake(balance);
@@ -137,14 +136,14 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
 
     /// @notice ERC-7572 immutable contract metadata.
     function contractURI() external pure returns (string memory) {
-        return 'data:application/json,{"name":"ADAM Distributor","external_link":"https://x.com/IaMaDamIMD"}';
+        return 'data:application/json,{"name":"IMDO Staking"}';
     }
 
     // ---------------------------------------------------------------------------------------------
     // Reward intake
     // ---------------------------------------------------------------------------------------------
 
-    /// @inheritdoc IAdamDistributor
+    /// @inheritdoc IImdoStaking
     function notifyReward(address token, uint256 amount) external nonReentrant {
         if (!isRewardToken[token]) revert NotRewardToken(token);
         if (amount == 0) revert ZeroAmount();
@@ -156,6 +155,53 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
 
         uint256 distributed = _distribute(token, received);
         emit RewardNotified(token, msg.sender, received, distributed);
+    }
+
+    /// @notice Only the immutable claim contract may fund a beneficiary's stake.
+    function stakeFor(address beneficiary, uint256 amount) external nonReentrant {
+        if (msg.sender != claimContract) revert OnlyClaim();
+        if (amount == 0) revert ZeroAmount();
+        if (isExcluded[beneficiary]) revert Excluded(beneficiary);
+        _settle(beneficiary);
+        stakedBalance[beneficiary] += amount;
+        totalStaked += amount;
+        unlockTime[beneficiary] = block.timestamp + LOCK_DURATION;
+        _syncBacklogStreams();
+        imdo.safeTransferFrom(msg.sender, address(this), amount);
+        emit Staked(beneficiary, amount);
+    }
+
+    function claimReward(address token) external nonReentrant {
+        if (!isRewardToken[token]) revert NotRewardToken(token);
+        _settle(msg.sender);
+        uint256 amount = rewardsAccrued[token][msg.sender];
+        if (amount == 0) revert ZeroAmount();
+        rewardsAccrued[token][msg.sender] = 0;
+        totalClaimed[token] += amount;
+        IERC20(token).safeTransfer(msg.sender, amount);
+        emit RewardClaimed(msg.sender, token, amount);
+    }
+
+    /// @notice ETH funds off-chain REGEN purchases; it is never paid by a holder claim.
+    function notifyRegen() external payable nonReentrant {
+        if (msg.value == 0) revert ZeroAmount();
+        totalRegenNotified += msg.value;
+        uint256 distributed = _distribute(address(0), msg.value);
+        emit RegenNotified(msg.sender, msg.value, distributed);
+    }
+
+    function regenCreditOf(address account) external view returns (uint256) {
+        return earned(account, address(0));
+    }
+
+    function withdrawRegen(uint256 amount) external nonReentrant {
+        if (msg.sender != regenSafe) revert OnlyRegenSafe();
+        if (amount == 0) revert ZeroAmount();
+        if (amount > totalRegenNotified - totalRegenWithdrawn) revert InsufficientRegen();
+        totalRegenWithdrawn += amount;
+        (bool ok,) = regenSafe.call{value: amount}("");
+        if (!ok) revert RegenTransferFailed();
+        emit RegenWithdrawn(amount);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -190,12 +236,13 @@ contract AdamDistributor is IAdamDistributor, ReentrancyGuard {
         if (amount == 0) revert ZeroAmount();
         uint256 staked = stakedBalance[msg.sender];
         if (amount > staked) revert InsufficientStake();
+        if (block.timestamp < unlockTime[msg.sender]) revert StakeLocked(unlockTime[msg.sender]);
         _settle(msg.sender);
         stakedBalance[msg.sender] = staked - amount;
         totalStaked -= amount;
         _syncBacklogStreams();
         emit Unstaked(msg.sender, amount);
-        adam.safeTransfer(msg.sender, amount);
+        imdo.safeTransfer(msg.sender, amount);
     }
 
     function _claim(address account) internal {
