@@ -27,7 +27,7 @@ contract DeferredFeeRecipient {
     }
 }
 
-contract HookDeferredFeesTest is Test {
+abstract contract HookDeferredFeesFixture is Test {
     PoolManager pm;
     PoolSwapTest router;
     IMDOToken token;
@@ -36,7 +36,7 @@ contract HookDeferredFeesTest is Test {
     DeferredFeeRecipient recipient;
     receive() external payable {}
 
-    function setUp() public {
+    function setUp() public virtual {
         vm.warp(1_800_000_000);
         vm.deal(address(this), 100 ether);
         pm = new PoolManager(address(this));
@@ -68,7 +68,9 @@ contract HookDeferredFeesTest is Test {
             ""
         );
     }
+}
 
+contract HookDeferredFeesTest is HookDeferredFeesFixture {
     function test_firstBuyOnTokenOnlyManagerThenPermissionlessRedemption() public {
         assertEq(address(pm).balance, 0);
         uint256 before = token.balanceOf(address(this));
