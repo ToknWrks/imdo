@@ -60,7 +60,6 @@ contract HookHandler is Test {
             PoolSwapTest.TestSettings(false, false),
             ""
         );
-        if (launch == 0) launch = clock;
         uint256 spent = beforeEth - address(this).balance;
         uint256 charged = _feeBalance() - beforeFees;
         if (exactOutput) {
@@ -111,6 +110,13 @@ contract HookHandler is Test {
         assertEq(manager.balanceOf(address(hook), 0), reject ? claims : 0);
     }
 
+    function open() external {
+        if (launch != 0) return;
+        vm.prank(hook.owner());
+        hook.open();
+        launch = clock;
+    }
+
     function lower(uint16 raw) external {
         if (base == 0) return;
         uint16 next = uint16(bound(raw, 0, base - 1));
@@ -142,12 +148,13 @@ contract HookInvariantTest is HookDeferredFeesFixture {
         handler.buy(uint96(0.01 ether), false);
         assertEq(pm.balanceOf(address(hook), 0), 0.002 ether);
         targetContract(address(handler));
-        bytes4[] memory selectors = new bytes4[](5);
+        bytes4[] memory selectors = new bytes4[](6);
         selectors[0] = handler.buy.selector;
         selectors[1] = handler.sell.selector;
         selectors[2] = handler.redeem.selector;
         selectors[3] = handler.lower.selector;
         selectors[4] = handler.advance.selector;
+        selectors[5] = handler.open.selector;
         targetSelector(FuzzSelector(address(handler), selectors));
     }
 

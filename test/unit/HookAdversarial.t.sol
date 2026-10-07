@@ -19,6 +19,7 @@ contract HookAdversarialTest is LocalV4 {
     function testFuzz_exactInputSellChargesGrossEthAtAnyDecayTime(uint256 fraction, uint32 elapsed, uint16 base)
         public
     {
+        openPool();
         uint256 bought = uint256(uint128(buyExactIn(2 ether).amount1()));
         elapsed = uint32(bound(elapsed, 0, 3600));
         base = uint16(bound(base, 0, 149));
@@ -43,6 +44,7 @@ contract HookAdversarialTest is LocalV4 {
 
     /// forge-config: default.fuzz.runs = 1000
     function testFuzz_exactOutputSellDeliversRequestedNetAndGrossFee(uint256 requested, uint32 elapsed) public {
+        openPool();
         buyExactIn(2 ether);
         vm.warp(uint256(hook.launchTimestamp()) + bound(elapsed, 0, 3600));
         requested = bound(requested, 1 gwei, 0.5 ether);
@@ -81,6 +83,7 @@ contract HookAdversarialTest is LocalV4 {
     }
 
     function test_decayBoundariesAndNoFeeResurrection() public {
+        openPool();
         buyExactIn(1 ether);
         uint256 launch = hook.launchTimestamp();
         vm.warp(launch + 1799);

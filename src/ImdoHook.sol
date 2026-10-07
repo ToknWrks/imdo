@@ -25,7 +25,9 @@ import {SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/types/Pool
 /// forwards it to the treasury, or retains a redeemable claim if the manager lacks ETH.
 ///
 /// Fee schedule (basis points of the ETH leg of the swap):
-///   - anti-snipe: 20.00% at the first filled swap, decaying linearly to `feeBps` over 30 minutes;
+///   - launch: 20.00% flat from pool creation until the owner calls `open()`, then decaying linearly to
+///     `feeBps` over 30 minutes. Trading is never gated; the clock is started by the owner, once, at the
+///     announced launch, so a fee-less dust swap cannot start it early.
 ///   - steady state: `feeBps`, 1.50% at deployment. The owner can only lower it, never raise it.
 ///
 /// How the ETH is taken, by swap type (ETH is always currency0 of the pool):
@@ -42,7 +44,7 @@ contract ImdoHook is IHooks, IUnlockCallback, Ownable2Step, ReentrancyGuard {
     using SafeCast for uint256;
 
     uint256 public constant BPS = 10_000;
-    /// @notice Fee at the first filled swap.
+    /// @notice Fee before `open()` and at the moment it is called.
     uint16 public constant LAUNCH_FEE_BPS = 2000;
     /// @notice Length of the linear anti-snipe decay.
     uint32 public constant DECAY_DURATION = 30 minutes;
@@ -55,7 +57,7 @@ contract ImdoHook is IHooks, IUnlockCallback, Ownable2Step, ReentrancyGuard {
 
     /// @notice Current steady-state fee in basis points.
     uint16 public feeBps = INITIAL_FEE_BPS;
-    /// @notice Timestamp of the first filled swap; 0 until trading starts.
+    /// @notice Timestamp of `open()`; 0 until the owner opens, during which the launch fee applies flat.
     uint64 public launchTimestamp;
     bool public initialized;
     /// @notice Id of the one pool this hook serves.
@@ -72,6 +74,7 @@ contract ImdoHook is IHooks, IUnlockCallback, Ownable2Step, ReentrancyGuard {
     error InvalidPool();
     error OnlyOwnerCanInitialize();
     error FeeNotLower(uint16 current, uint16 requested);
+    error AlreadyOpen();
     error ZeroAddress();
     error PartialFillNotSupported();
     error EmptySwap();
@@ -99,6 +102,14 @@ contract ImdoHook is IHooks, IUnlockCallback, Ownable2Step, ReentrancyGuard {
     // ---------------------------------------------------------------------------------------------
     // Owner
     // ---------------------------------------------------------------------------------------------
+
+    /// @notice Start the launch decay. Until this is called every swap pays the flat launch fee; from this block the
+    /// fee falls linearly to `feeBps` over DECAY_DURATION. Callable once; it cannot be undone and gates nothing.
+    function open() external onlyOwner {
+        if (launchTimestamp != 0) revert AlreadyOpen();
+        launchTimestamp = uint64(block.timestamp);
+        emit PoolLaunched(poolId, launchTimestamp);
+    }
 
     /// @notice Lower the steady-state fee. Raising is impossible by construction.
     function lowerFee(uint16 newFeeBps) external onlyOwner {
@@ -171,10 +182,6 @@ contract ImdoHook is IHooks, IUnlockCallback, Ownable2Step, ReentrancyGuard {
         onlyPoolManager
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        if (launchTimestamp == 0) {
-            launchTimestamp = uint64(block.timestamp);
-            emit PoolLaunched(poolId, launchTimestamp);
-        }
         // ETH (currency0) is the specified currency for exact-input buys and exact-output sells.
         if (!_ethIsSpecified(params)) {
             return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);

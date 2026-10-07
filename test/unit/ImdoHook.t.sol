@@ -106,10 +106,31 @@ contract ImdoHookTest is LocalV4 {
         hook.beforeInitialize(address(this), imdoKey, 0);
     }
 
+    function test_openIsOwnerOnlyOnceAndStartsTheClockWithoutGatingTrades() public {
+        // before open(): trading works at the flat launch fee, and no swap, however small, starts the clock
+        buyExactIn(1);
+        assertEq(hook.launchTimestamp(), 0, "a dust swap must not start the launch decay");
+        buyExactIn(1 ether);
+        assertEq(hook.launchTimestamp(), 0);
+        assertEq(hook.currentFeeBps(), 2000);
+        vm.warp(vm.getBlockTimestamp() + 7 days);
+        assertEq(hook.currentFeeBps(), 2000, "the launch fee holds flat until the owner opens");
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
+        hook.open();
+        vm.prank(hookOwner);
+        hook.open();
+        assertEq(hook.launchTimestamp(), vm.getBlockTimestamp());
+        vm.prank(hookOwner);
+        vm.expectRevert(ImdoHook.AlreadyOpen.selector);
+        hook.open();
+        vm.warp(hook.launchTimestamp() + 15 minutes);
+        assertEq(hook.currentFeeBps(), 1075);
+    }
+
     // ------------------------------------------------------------------ fee schedule
 
     function test_decaySchedule() public {
-        buyExactIn(1);
+        openPool();
         uint256 launch = hook.launchTimestamp();
         assertEq(hook.currentFeeBps(), 2000);
         vm.warp(launch + 15 minutes);
@@ -126,7 +147,7 @@ contract ImdoHookTest is LocalV4 {
         a = uint32(bound(a, 0, 2 hours));
         b = uint32(bound(b, 0, 2 hours));
         if (a > b) (a, b) = (b, a);
-        buyExactIn(1);
+        openPool();
         uint256 launch = hook.launchTimestamp();
         vm.warp(launch + a);
         uint256 feeA = hook.currentFeeBps();
@@ -155,7 +176,7 @@ contract ImdoHookTest is LocalV4 {
     }
 
     function test_lowerFeeDuringDecayKeepsDecaying() public {
-        buyExactIn(1);
+        openPool();
         vm.prank(hookOwner);
         hook.lowerFee(100);
         vm.warp(hook.launchTimestamp() + 15 minutes);
@@ -260,7 +281,7 @@ contract ImdoHookTest is LocalV4 {
     function testFuzz_buyFeeMatchesSchedule(uint256 ethIn, uint32 elapsed) public {
         ethIn = bound(ethIn, 1e12, 5 ether);
         elapsed = uint32(bound(elapsed, 0, 1 hours));
-        buyExactIn(1);
+        openPool();
         vm.warp(hook.launchTimestamp() + elapsed);
         uint256 expectedBps = hook.currentFeeBps();
         uint256 before = address(treasury).balance;

@@ -54,7 +54,7 @@ contract RevisionTest is LocalV4 {
     }
 
     function testFuzz_exactOutputFeesAreGrossRate(uint32 elapsed, uint128 requested) public {
-        buyExactIn(1);
+        openPool();
         elapsed = uint32(bound(elapsed, 0, 1 hours));
         requested = uint128(bound(requested, 1e18, 1_000_000e18));
         vm.warp(uint256(hook.launchTimestamp()) + elapsed);
@@ -65,12 +65,16 @@ contract RevisionTest is LocalV4 {
         assertApproxEqAbs(address(treasury).balance - before, gross * bps / 10_000, 1);
     }
 
-    function test_firstFilledSwapStartsFullDecayAfterDeploymentDelay() public {
+    function test_openStartsFullDecayAfterDeploymentDelayAndSwapsBeforeItPayTheLaunchFee() public {
         vm.warp(vm.getBlockTimestamp() + 7 days);
         assertEq(hook.launchTimestamp(), 0);
         assertEq(hook.currentFeeBps(), 2000);
         buyExactIn(1 ether);
         assertEq(address(treasury).balance, 0.2 ether);
+        assertEq(hook.launchTimestamp(), 0, "a filled swap no longer starts the clock");
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
+        assertEq(hook.currentFeeBps(), 2000, "still the launch fee an hour after the first trade");
+        openPool();
         assertEq(hook.launchTimestamp(), vm.getBlockTimestamp());
         vm.warp(uint256(hook.launchTimestamp()) + 15 minutes);
         assertEq(hook.currentFeeBps(), 1075);

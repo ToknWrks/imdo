@@ -148,8 +148,15 @@ abstract contract LocalV4 is Test {
         return _swap(imdoKey, false, int256(ethOut), 0);
     }
 
+    /// @dev The owner starts the launch decay; before this every swap pays the flat launch fee.
+    function openPool() internal {
+        if (hook.launchTimestamp() != 0) return;
+        vm.prank(hook.owner());
+        hook.open();
+    }
+
     function warpPastDecay() internal {
-        if (hook.launchTimestamp() == 0) buyExactIn(1); // starts trading without a rounded ETH fee
+        openPool();
         vm.warp(uint256(hook.launchTimestamp()) + hook.DECAY_DURATION());
     }
 
