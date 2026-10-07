@@ -126,4 +126,21 @@ contract ImdoDeployTest is LocalV4 {
         vm.expectRevert(DeployImdo.TickNotAligned.selector);
         script.deploy(c);
     }
+
+    /// @dev Finding (low): the claim is created after the staking that bakes in its address. A launch at or
+    /// just after "now" can pass the simulation and revert on the broadcast block, burning the predicted address.
+    function test_scriptRequiresLaunchLeadBeforeAnyCreation() public {
+        DeployImdo.Config memory c = _config();
+        uint256 nonce = vm.getNonce(address(script));
+        c.launch = vm.getBlockTimestamp();
+        vm.expectRevert(DeployImdo.InvalidConfiguration.selector);
+        script.deploy(c);
+        c.launch = vm.getBlockTimestamp() + script.MIN_LAUNCH_LEAD() - 1;
+        vm.expectRevert(DeployImdo.InvalidConfiguration.selector);
+        script.deploy(c);
+        assertEq(vm.getNonce(address(script)), nonce);
+        c.launch = vm.getBlockTimestamp() + script.MIN_LAUNCH_LEAD();
+        DeployImdo.Deployment memory d = script.deploy(c);
+        assertEq(d.staking.claimContract(), address(d.claim));
+    }
 }

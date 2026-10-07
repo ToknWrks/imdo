@@ -35,6 +35,9 @@ contract DeployImdo is Script {
     uint256 public constant LIQUIDITY_IMDO = 890_000_000e18;
     uint256 public constant CLAIM_FUNDING = 110_000_000e18;
     int24 public constant TICK_SPACING = 60;
+    /// @dev The claim is created in a later transaction than the staking that bakes in its address; if `launch`
+    /// has passed by then the creation reverts and the predicted address is burned. Require a lead.
+    uint256 public constant MIN_LAUNCH_LEAD = 1 hours;
 
     struct Config {
         uint256 chainId;
@@ -147,7 +150,7 @@ contract DeployImdo is Script {
                 || c.offsetsSafe == address(0) || c.regenSafe == address(0) || c.hookOwner == address(0)
                 || c.create2Deployer == address(0) || c.poolManager.code.length == 0
                 || c.positionManager.code.length == 0 || c.permit2.code.length == 0 || c.imd.code.length == 0
-                || c.seatNFT.code.length == 0 || c.launch < block.timestamp
+                || c.seatNFT.code.length == 0 || c.launch < block.timestamp + MIN_LAUNCH_LEAD
         ) revert InvalidConfiguration();
         if (
             c.openingTick % TICK_SPACING != 0 || c.openingTick > TickMath.MAX_TICK

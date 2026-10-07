@@ -36,6 +36,8 @@ contract ImdoTreasury is IUnlockCallback, ReentrancyGuard {
     uint256 public constant IMD_BPS = 4000;
     uint256 public constant EPOCH_DURATION = 7 days;
     uint256 public constant CHECKPOINT_DECAY = 7 days;
+    /// @dev Largest step the post-buy checkpoint may rise above the floor it enforced, in sqrt-price bps (~4% price).
+    uint256 public constant MAX_CHECKPOINT_RISE_BPS = 200;
     uint256 public constant MAX_SLIPPAGE_BPS = 2000;
     uint256 public constant MAX_COOLDOWN = 1 days;
     uint256 public constant MIN_ETH_PER_BUY = 1 gwei;
@@ -88,6 +90,7 @@ contract ImdoTreasury is IUnlockCallback, ReentrancyGuard {
     event LegFailed(uint8 indexed leg, uint256 ethAttempted, bytes reason);
     event RewardsFlushed(address indexed token, uint256 amount);
     event CheckpointSeeded(uint160 sqrtPriceX96);
+    event CheckpointRefreshed(uint160 postSwapSqrtPriceX96, uint160 checkpointSqrtPriceX96);
 
     error ZeroAddress();
     error InvalidParameter();
@@ -278,9 +281,7 @@ contract ImdoTreasury is IUnlockCallback, ReentrancyGuard {
         Leg storage l = _imdLeg;
         (uint160 sqrtPriceX96,, uint24 protocolFee, uint24 lpFee) = poolManager.getSlot0(l.key.toId());
         if (sqrtPriceX96 == 0 || l.checkpointSqrtPriceX96 == 0) revert InvalidParameter();
-        uint256 checkpointFloor = FullMath.mulDiv(
-            l.checkpointSqrtPriceX96, CHECKPOINT_DECAY, CHECKPOINT_DECAY + block.timestamp - l.checkpointAt
-        );
+        uint256 checkpointFloor = _checkpointFloor(l);
         if (sqrtPriceX96 < checkpointFloor) sqrtPriceX96 = uint160(checkpointFloor);
         uint24 swapFee = protocolFee.getZeroForOneFee().calculateSwapFee(lpFee);
         uint256 afterFee = ethIn - FullMath.mulDiv(ethIn, swapFee, LPFeeLibrary.MAX_LP_FEE);
@@ -329,8 +330,7 @@ contract ImdoTreasury is IUnlockCallback, ReentrancyGuard {
         try this.executeImd(ethIn) returns (uint256 out) {
             l.pending -= ethIn;
             _resetFailures();
-            (l.checkpointSqrtPriceX96,,,) = poolManager.getSlot0(l.key.toId());
-            l.checkpointAt = uint64(block.timestamp);
+            _refreshCheckpoint(l);
             emit LegBought(LEG_IMD, Currency.unwrap(l.key.currency1), ethIn, out);
         } catch (bytes memory reason) {
             emit LegFailed(LEG_IMD, ethIn, reason);
@@ -340,6 +340,30 @@ contract ImdoTreasury is IUnlockCallback, ReentrancyGuard {
             l.retryCap = ethIn / 2;
             if (l.retryCap < MIN_ETH_PER_BUY) l.retryCap = MIN_ETH_PER_BUY;
         }
+    }
+
+    /// @dev The decayed reference the current call enforces: cp * 7 days / (7 days + age).
+    function _checkpointFloor(Leg storage l) private view returns (uint256) {
+        return FullMath.mulDiv(
+            l.checkpointSqrtPriceX96, CHECKPOINT_DECAY, CHECKPOINT_DECAY + block.timestamp - l.checkpointAt
+        );
+    }
+
+    /// @dev After a buy the reference follows the pool, but only within bounds the buy itself just enforced:
+    /// never below the floor this call required (a sandwich cannot ratchet the floor down) and never more
+    /// than MAX_CHECKPOINT_RISE_BPS above it (a dust buy at a pushed price cannot pin the floor above spot).
+    /// Genuine moves still pass through: downward via the 7-day decay, upward in bounded steps per buy.
+    function _refreshCheckpoint(Leg storage l) private {
+        (uint160 post,,,) = poolManager.getSlot0(l.key.toId());
+        uint256 floorNow = _checkpointFloor(l);
+        uint256 ceilNow = FullMath.mulDiv(floorNow, BPS + MAX_CHECKPOINT_RISE_BPS, BPS);
+        if (ceilNow > TickMath.MAX_SQRT_PRICE) ceilNow = TickMath.MAX_SQRT_PRICE;
+        uint256 next = post;
+        if (next < floorNow) next = floorNow;
+        else if (next > ceilNow) next = ceilNow;
+        l.checkpointSqrtPriceX96 = uint160(next);
+        l.checkpointAt = uint64(block.timestamp);
+        emit CheckpointRefreshed(post, uint160(next));
     }
 
     function _resetFailures() private {

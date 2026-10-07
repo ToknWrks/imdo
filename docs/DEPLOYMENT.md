@@ -21,7 +21,7 @@ The assignment performed no deployment. Use a fresh mainnet deployment for the c
 | seatNFT | `0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D` |
 | openingTick | Operator-reviewed multiple of 60; ADAM example `177240` |
 | holderRoot | Reviewed immutable sorted-pair Merkle root, or zero to disable holders |
-| launch | Future Unix timestamp; choose enough time to complete and fund deployment |
+| launch | Unix timestamp at least 1 hour (`MIN_LAUNCH_LEAD`) after the simulation; preflight rejects less. Choose enough time to complete and fund deployment |
 
 The script's ABI signature is:
 
@@ -35,7 +35,7 @@ Fixed application settings are IMD pool fee 10000, spacing 200; 1 ETH max buy; 3
 
 The deployment requires all 1 billion newly created tokens: 890 million budgeted for the sole position and 110 million for claims. Liquidity uses integer rounding, so a small remainder goes to dead along with the LP NFT. It is not an owner allocation. Deployment checks clear ERC-20 and Permit2 approvals after minting the position.
 
-Transaction order matters for the claim prediction. Do not insert signer transactions between creating staking and claim. The script verifies the resulting address. Foundry broadcast is a sequence of transactions, not an atomic batch: a partially broadcast sequence needs an operator-led recovery/rehearsal before resuming. Never restart a partially completed launch blindly.
+Transaction order matters for the claim prediction. Staking and claim must be consecutive deployer transactions; do not insert signer transactions between them. If the claim creation reverts (for example `launch` already passed), its nonce is consumed and the staking's claim address can never receive code: token and staking must be redeployed. The script verifies the resulting address. Foundry broadcast is a sequence of transactions, not an atomic batch: a partially broadcast sequence needs an operator-led recovery/rehearsal before resuming. Never restart a partially completed launch blindly.
 
 Before broadcast, check real token metadata, IMD pool liquidity and price, all wallet authorities, seat contract identity and ID range, and the holder root dataset. Publish the dataset/proofs and a sum check; omit duplicate account leaves. Afterward record contract addresses, creation receipts, hook salt, exact PoolKey, LP token ID, claim funding, launch/deadline, and pending owner. Have the hook owner accept ownership.
 
