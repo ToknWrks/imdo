@@ -36,7 +36,8 @@ contract ImdoTreasury is IUnlockCallback, ReentrancyGuard {
     uint256 public constant IMD_BPS = 4000;
     uint256 public constant EPOCH_DURATION = 7 days;
     uint256 public constant CHECKPOINT_DECAY = 7 days;
-    /// @dev Largest step the post-buy checkpoint may rise above the floor it enforced, in sqrt-price bps (~4% price).
+    /// @dev Largest rise of the checkpoint above the floor it enforced, in sqrt-price bps (~4% price), for a buy of the
+    /// full maxEthPerBuy; smaller buys earn proportionally less.
     uint256 public constant MAX_CHECKPOINT_RISE_BPS = 200;
     uint256 public constant MAX_SLIPPAGE_BPS = 2000;
     uint256 public constant MAX_COOLDOWN = 1 days;
@@ -90,7 +91,7 @@ contract ImdoTreasury is IUnlockCallback, ReentrancyGuard {
     event LegFailed(uint8 indexed leg, uint256 ethAttempted, bytes reason);
     event RewardsFlushed(address indexed token, uint256 amount);
     event CheckpointSeeded(uint160 sqrtPriceX96);
-    event CheckpointRefreshed(uint160 postSwapSqrtPriceX96, uint160 checkpointSqrtPriceX96);
+    event CheckpointRefreshed(uint160 postSwapSqrtPriceX96, uint160 floorSqrtPriceX96);
 
     error ZeroAddress();
     error InvalidParameter();
@@ -330,7 +331,7 @@ contract ImdoTreasury is IUnlockCallback, ReentrancyGuard {
         try this.executeImd(ethIn) returns (uint256 out) {
             l.pending -= ethIn;
             _resetFailures();
-            _refreshCheckpoint(l);
+            _refreshCheckpoint(l, ethIn);
             emit LegBought(LEG_IMD, Currency.unwrap(l.key.currency1), ethIn, out);
         } catch (bytes memory reason) {
             emit LegFailed(LEG_IMD, ethIn, reason);
@@ -349,20 +350,33 @@ contract ImdoTreasury is IUnlockCallback, ReentrancyGuard {
         );
     }
 
-    /// @dev After a buy the reference follows the pool, but only within bounds the buy itself just enforced:
-    /// never below the floor this call required (a sandwich cannot ratchet the floor down) and never more
-    /// than MAX_CHECKPOINT_RISE_BPS above it (a dust buy at a pushed price cannot pin the floor above spot).
-    /// Genuine moves still pass through: downward via the 7-day decay, upward in bounded steps per buy.
-    function _refreshCheckpoint(Leg storage l) private {
+    /// @dev After a buy the reference may only move UP, and only as far as the buy earns: the rise above the floor
+    /// this call enforced is MAX_CHECKPOINT_RISE_BPS scaled by ethIn / maxEthPerBuy, so a dust buy at a pushed price
+    /// lifts the floor by next to nothing and repeated dust cannot ratchet it above spot. A price at or under the
+    /// floor changes nothing: the reference is never lowered (a sandwich cannot ratchet it down) and the decay anchor
+    /// is left alone, so the floor keeps the documented 7-day hyperbola instead of restarting on every refresh. The
+    /// anchor moves only on a true rise, a price at or above the anchored reference itself; a price between the
+    /// decayed floor and that reference lifts the floor to it without touching the anchor. Down is the decay only.
+    function _refreshCheckpoint(Leg storage l, uint256 ethIn) private {
         (uint160 post,,,) = poolManager.getSlot0(l.key.toId());
-        uint256 floorNow = _checkpointFloor(l);
-        uint256 ceilNow = FullMath.mulDiv(floorNow, BPS + MAX_CHECKPOINT_RISE_BPS, BPS);
-        if (ceilNow > TickMath.MAX_SQRT_PRICE) ceilNow = TickMath.MAX_SQRT_PRICE;
-        uint256 next = post;
-        if (next < floorNow) next = floorNow;
-        else if (next > ceilNow) next = ceilNow;
-        l.checkpointSqrtPriceX96 = uint160(next);
-        l.checkpointAt = uint64(block.timestamp);
+        uint256 age = block.timestamp - l.checkpointAt;
+        uint256 floorNow = FullMath.mulDiv(l.checkpointSqrtPriceX96, CHECKPOINT_DECAY, CHECKPOINT_DECAY + age);
+        uint256 next = floorNow;
+        if (post > floorNow) {
+            uint256 weightBps = ethIn >= maxEthPerBuy ? BPS : FullMath.mulDiv(ethIn, BPS, maxEthPerBuy);
+            uint256 ceilNow = floorNow + FullMath.mulDiv(floorNow, MAX_CHECKPOINT_RISE_BPS * weightBps, BPS * BPS);
+            if (ceilNow > TickMath.MAX_SQRT_PRICE) ceilNow = TickMath.MAX_SQRT_PRICE;
+            next = post < ceilNow ? post : ceilNow;
+            if (next >= l.checkpointSqrtPriceX96) {
+                l.checkpointSqrtPriceX96 = uint160(next);
+                l.checkpointAt = uint64(block.timestamp);
+            } else {
+                // Lift today's floor to `next` and keep the anchor: store the value that decays to `next` now.
+                uint256 lifted = FullMath.mulDiv(next, CHECKPOINT_DECAY + age, CHECKPOINT_DECAY);
+                if (lifted > TickMath.MAX_SQRT_PRICE) lifted = TickMath.MAX_SQRT_PRICE;
+                l.checkpointSqrtPriceX96 = uint160(lifted);
+            }
+        }
         emit CheckpointRefreshed(post, uint160(next));
     }
 
