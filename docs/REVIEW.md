@@ -32,7 +32,7 @@ Recorded on 2026-10-07:
 | Check | Result |
 |---|---|
 | `forge build` | Passed with Solidity 0.8.26; narrowing-cast lints are informational |
-| `forge test` | **83 passed, 0 failed, 0 skipped**, across 14 local suites |
+| `forge test` | **104 passed, 0 failed, 0 skipped**, across 21 local suites (83 at the first review; the swarm's test node and the follow-up commits added the rest) |
 | `forge fmt --check` | Passed |
 | Pinned mainnet test (`forge test --match-path 'test/fork/*.t.sol' --no-match-path 'test/__none__/**'`) | **1 passed, 0 failed, 0 skipped** at block 26,126,549 |
 | Staking invariant | 128 runs / 8,192 handler calls, zero reverts |

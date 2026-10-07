@@ -38,6 +38,8 @@ contract DeployImdo is Script {
     /// @dev The claim is created in a later transaction than the staking that bakes in its address; if `launch`
     /// has passed by then the creation reverts and the predicted address is burned. Require a lead.
     uint256 public constant MIN_LAUNCH_LEAD = 1 hours;
+    /// @dev A launch too far ahead would lock the claim funding (and the seat tranches) for that long; reject it.
+    uint256 public constant MAX_LAUNCH_LEAD = 30 days;
 
     struct Config {
         uint256 chainId;
@@ -151,6 +153,7 @@ contract DeployImdo is Script {
                 || c.create2Deployer == address(0) || c.poolManager.code.length == 0
                 || c.positionManager.code.length == 0 || c.permit2.code.length == 0 || c.imd.code.length == 0
                 || c.seatNFT.code.length == 0 || c.launch < block.timestamp + MIN_LAUNCH_LEAD
+                || c.launch > block.timestamp + MAX_LAUNCH_LEAD
         ) revert InvalidConfiguration();
         if (
             c.openingTick % TICK_SPACING != 0 || c.openingTick > TickMath.MAX_TICK

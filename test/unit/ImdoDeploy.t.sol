@@ -139,6 +139,10 @@ contract ImdoDeployTest is LocalV4 {
         vm.expectRevert(DeployImdo.InvalidConfiguration.selector);
         script.deploy(c);
         assertEq(vm.getNonce(address(script)), nonce);
+        c.launch = vm.getBlockTimestamp() + script.MAX_LAUNCH_LEAD() + 1;
+        vm.expectRevert(DeployImdo.InvalidConfiguration.selector);
+        script.deploy(c);
+        assertEq(vm.getNonce(address(script)), nonce);
         c.launch = vm.getBlockTimestamp() + script.MIN_LAUNCH_LEAD();
         DeployImdo.Deployment memory d = script.deploy(c);
         assertEq(d.staking.claimContract(), address(d.claim));
