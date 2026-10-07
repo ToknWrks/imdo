@@ -141,8 +141,9 @@ contract CheckpointRefreshTest is Test {
 
     function test_inflatedDustBuyCannotPinFloorAboveSpotForDays() public {
         _fund(1 ether);
-        treasury.process(); // honest buy: checkpoint == market
+        treasury.process(); // honest buy; the checkpoint sits at the floor it enforced, a hair above spot
         uint160 market = _spot();
+        uint256 cpBefore = treasury.leg(0).checkpointSqrtPriceX96;
         // attacker sells IMD until the sqrt-price is 1.5x market, then has the treasury buy 1 gwei there
         uint160 pushed = uint160(uint256(market) * 3 / 2);
         _limitSwap(false, pushed, 0);
@@ -151,7 +152,7 @@ contract CheckpointRefreshTest is Test {
         treasury.process();
         assertEq(treasury.leg(0).pending, 0, "dust buy fills at the pushed price");
         uint160 cp = treasury.leg(0).checkpointSqrtPriceX96;
-        uint256 ceiling = uint256(market) * (10_000 + treasury.MAX_CHECKPOINT_RISE_BPS()) / 10_000;
+        uint256 ceiling = cpBefore * (10_000 + treasury.MAX_CHECKPOINT_RISE_BPS()) / 10_000;
         assertLe(uint256(cp), ceiling, "checkpoint rose more than one bounded step above the enforced floor");
         // attacker buys back to market
         _limitSwap(true, market, 5000 ether);
