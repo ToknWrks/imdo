@@ -1,0 +1,1696 @@
+{
+ "token": "0x2E6C05f1f7D1f4Eb9A088bf12257f1647682b754",
+ "decimals": 6,
+ "chainId": 8453,
+ "block": "52473907",
+ "blockTime": "2026-10-11T16:46:01.000Z",
+ "params": {
+  "totalImdo": "10000000000000000000000000",
+  "capPerWallet": "500000000000000000000000",
+  "minAxlRegen": "1000000000",
+  "rule": "half equal per wallet, half by sqrt(balance), 5% cap with excess redistributed by the same rule; balance = wallet + LP share (3 vAMM pools, gauge deposits credited) + Uniswap v4 ETH/axlREGEN positions at the snapshot price"
+ },
+ "sources": {
+  "lpPools": [
+   {
+    "pool": "aerodrome vAMM-axlREGEN/USDC",
+    "address": "0xE7b7156e1fA9B633d12e1B91E40e4ABC6786A248",
+    "axlRegenReserve": "26287",
+    "lpSupply": "1000",
+    "gauges": [],
+    "attributed": "26287",
+    "unattributed": "0"
+   },
+   {
+    "pool": "hydrex vAMM-axlREGEN/WETH",
+    "address": "0x4f0A58B2F561cD23E3059e76526125C85E281821",
+    "axlRegenReserve": "649252260955",
+    "lpSupply": "544942264755649",
+    "gauges": [
+     {
+      "contract": "0x42b49967d38da5c4070336ce1cca91a802a11e8c",
+      "lpHeld": "544942264754649",
+      "lpAttributedToDepositors": "544942264754649"
+     }
+    ],
+    "attributed": "649252260952",
+    "unattributed": "0"
+   },
+   {
+    "pool": "hydrex vAMM-axlREGEN/cbBTC",
+    "address": "0x98dd313D0E645bFa65d928D8A1fed6b837ceeBB6",
+    "axlRegenReserve": "15491671750",
+    "lpSupply": "22456215",
+    "gauges": [],
+    "attributed": "15491671749",
+    "unattributed": "0"
+   }
+  ],
+  "v4": {
+   "poolId": "0xd18dff2cf9461b8b887458ee7b56bbcaf27456f503a2a6094a9ec1e0b9863cb3",
+   "positionManager": "0x7C5f5A4bBd8fD63184577525326123B519429bDc",
+   "positions": [
+    {
+     "tokenId": "480333",
+     "owner": "0x8DA8058De88F2FB0bE6a3028Ea1C9cfb81EDa77F",
+     "tickLower": -887200,
+     "tickUpper": 887200,
+     "liquidity": "526350275030055",
+     "axlRegen": "625840703683"
+    },
+    {
+     "tokenId": "3123949",
+     "owner": "0x3659C94900bA46698DF053F1663b887bEAB444D1",
+     "tickLower": -887200,
+     "tickUpper": 887200,
+     "liquidity": "1293624635073775",
+     "axlRegen": "1538144825459"
+    }
+   ],
+   "scanned": 9417,
+   "note": "positions held outside the official PositionManager are not seen",
+   "sqrtPriceX96": "94203824585498646885685611",
+   "nextTokenId": "3129778"
+  }
+ },
+ "excluded": [
+  {
+   "address": "0xb41e9b474d5b6f9d41d76bcf3129ea9a4e5011cf",
+   "why": "IMDO Offsets Treasury Safe"
+  },
+  {
+   "address": "0x55beb053c003f98c1059f2a497132cba72104a03",
+   "why": "IMDO game pot Safe"
+  },
+  {
+   "address": "0x357bae4f23f7c4494aa107dfcdb337e7892344ec",
+   "why": "IMDO Operations Safe"
+  },
+  {
+   "address": "0x5966ca0df8b753d8458162867f3435fa6e49222e",
+   "why": "IMDO Hook Owner Safe"
+  },
+  {
+   "address": "0xb1ec5a6ca4e5a9bff26d6c1a2a4ff7a8e9c0e559",
+   "why": "IMDO retirement wallet"
+  },
+  {
+   "address": "0x9008d19f58aabd9ed0d60971565aa8510560ab41",
+   "why": "CoW settlement"
+  },
+  {
+   "address": "0x498581ff718922c3f8e6a244956af099b2652b2b",
+   "why": "Uniswap v4 PoolManager"
+  },
+  {
+   "address": "0x7c5f5a4bbd8fd63184577525326123b519429bdc",
+   "why": "Uniswap v4 PositionManager"
+  },
+  {
+   "address": "0x6ff5693b99212da76ad316178a184ab56d299b43",
+   "why": "Uniswap Universal Router"
+  },
+  {
+   "address": "0x0000000000000000000000000000000000000000",
+   "why": "zero"
+  },
+  {
+   "address": "0x000000000000000000000000000000000000dead",
+   "why": "dead"
+  },
+  {
+   "address": "0xe7b7156e1fa9b633d12e1b91e40e4abc6786a248",
+   "why": "aerodrome vAMM-axlREGEN/USDC"
+  },
+  {
+   "address": "0x4f0a58b2f561cd23e3059e76526125c85e281821",
+   "why": "hydrex vAMM-axlREGEN/WETH"
+  },
+  {
+   "address": "0x98dd313d0e645bfa65d928d8a1fed6b837ceebb6",
+   "why": "hydrex vAMM-axlREGEN/cbBTC"
+  },
+  {
+   "address": "0x42b49967d38da5c4070336ce1cca91a802a11e8c",
+   "why": "hydrex vAMM-axlREGEN/WETH gauge-like contract"
+  }
+ ],
+ "counts": {
+  "seen": 237,
+  "eligible": 50,
+  "belowMinimum": 187,
+  "capped": 3
+ },
+ "merkleRoot": "0x9a0051c69602d2ece5a4c2658ae2922ae453e8b546a894540dca02af51a877ff",
+ "sumImdo": "9999999999999999999999959",
+ "sumIsTotal": false,
+ "leaf": "keccak256(bytes.concat(keccak256(abi.encode(address, uint256))))",
+ "holders": [
+  {
+   "address": "0x3659c94900ba46698df053f1663b887beab444d1",
+   "axlRegen": "8044272549693",
+   "wallet": "6506127724234",
+   "v4": "1538144825459",
+   "lp": {},
+   "imdo": "500000000000000000000000",
+   "proof": [
+    "0xa2fc2a5e4fe3a5b31f7a7d6d25a6ec79aa1828e95e97160d3adb5d8e817765ad",
+    "0xd6a89facc151082f7758ea297dce44dde6120b10be864177ed9f828bb2a60ac5",
+    "0xd968625cef0a009256c7755b3c12f6f2585de8c827696a85ad065defded0759d",
+    "0xa21d7616015de54f53a7dbf7b18d71bf54297405fafa183110097cfc50553bea",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x0ddb87d3ff7759a52e12e2b7db3b9ae9c6955708",
+   "axlRegen": "3107496505644",
+   "wallet": "3107496505644",
+   "v4": "0",
+   "lp": {},
+   "imdo": "500000000000000000000000",
+   "proof": [
+    "0x8ee9afd9cc38e485625a635ade277772f5f172a76bb4792047cba46906a23caa",
+    "0x94cf2cfd904a119b7991a67ccaa36f519bc30a9a210abb1e90dca38a60bf02a1",
+    "0x1883bce86fef6eff9618430583c5ffc1c71a6cc3f4daf703af3805d15e28c1b9",
+    "0x55ce423b8d7bf4e2995819b9ba559ccced792e8549a2e6f9aaa10a60f767c081",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xd3f7d91b37efb848aa84283bf3788ada7de57bfa",
+   "axlRegen": "2775485834478",
+   "wallet": "2775485834478",
+   "v4": "0",
+   "lp": {},
+   "imdo": "500000000000000000000000",
+   "proof": [
+    "0xb615dbd61888b02c1d674a829a965f8d3ddf5d0cd6b9020d0881b8afba10a728",
+    "0x8418c6e7628cf911719ef650c2f11003b60073138888cb6ab2943bf3234e43b1",
+    "0xd968625cef0a009256c7755b3c12f6f2585de8c827696a85ad065defded0759d",
+    "0xa21d7616015de54f53a7dbf7b18d71bf54297405fafa183110097cfc50553bea",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x96ed49044069faeb1234fcaf868a899281c7dd20",
+   "axlRegen": "1832596884343",
+   "wallet": "1832596884343",
+   "v4": "0",
+   "lp": {},
+   "imdo": "471180471587918435473986",
+   "proof": [
+    "0x0b0cbd97d511b9e0ea15b7faf0c60c56d1dae47fa26fc3452b1b22db7011ee0e",
+    "0x9e591e08dc6cd0ab34a98f789ef3a7e63ff6a3d293a0bb2e5d7caf8900881c85",
+    "0x67b7cef92ff21ef60e73c97bc59f2e719a3f986d8b6bc0a77a81b34e5e4af362",
+    "0x344031390b173ebac2b7adff6153a41d229c660f21d6dd671156f901e54d96c4",
+    "0x45952e9c90a2084b963d0b2bd3e2ef19c0651d95d48cd2e68bb5306c63d1ea32",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x496e1e434ef30563ce51c9cdaa2ea4dc657f8699",
+   "axlRegen": "1263416789247",
+   "wallet": "1263416789247",
+   "v4": "0",
+   "lp": {},
+   "imdo": "408921965858700510014618",
+   "proof": [
+    "0xec532f9676a23dc586452d69338a39b1dcbebdd9377bc36730c9d0591380f714",
+    "0x0bbe4a13932475ba37a725e17f9ac53523cc02f3845bae06272626bc2347dd71",
+    "0x344031390b173ebac2b7adff6153a41d229c660f21d6dd671156f901e54d96c4",
+    "0x45952e9c90a2084b963d0b2bd3e2ef19c0651d95d48cd2e68bb5306c63d1ea32",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0xfc29a9d67e84e1d70f2e93199a5e7ffa5dedb74e",
+   "axlRegen": "1138228618333",
+   "wallet": "1138228618333",
+   "v4": "0",
+   "lp": {},
+   "imdo": "393435394283915812916140",
+   "proof": [
+    "0xacdb9d2143b79a06ff7ba3106df7712655dbed2d3100812f0cec59436536a5db",
+    "0xd6a89facc151082f7758ea297dce44dde6120b10be864177ed9f828bb2a60ac5",
+    "0xd968625cef0a009256c7755b3c12f6f2585de8c827696a85ad065defded0759d",
+    "0xa21d7616015de54f53a7dbf7b18d71bf54297405fafa183110097cfc50553bea",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x0c2a559e2c5c0d88509b9506a7c6f00332f8e9c4",
+   "axlRegen": "688754572091",
+   "wallet": "688754572091",
+   "v4": "0",
+   "lp": {},
+   "imdo": "329212236949972484168994",
+   "proof": [
+    "0x6ed20ea2c7a0e027d35083d7390ed7a466b668b17a40238d3801f68488df26a1",
+    "0x3cd56dd73648fbf00283eb5cb03a7815fbe21383f638f70b8fcdc7733c4213aa",
+    "0x86836688fcf576d958a66f0a3d336a1db1c3b09a9241c9edb528266f6c9235ee",
+    "0x55ce423b8d7bf4e2995819b9ba559ccced792e8549a2e6f9aaa10a60f767c081",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x389cf1887338334586ebe17f0fec4ad4a054390c",
+   "axlRegen": "657432828573",
+   "wallet": "657432828573",
+   "v4": "0",
+   "lp": {},
+   "imdo": "324038392401178450679732",
+   "proof": [
+    "0xbac2a9376e652fec1946b502d3d4cd7bfa0c3e68fb296b23bac193b50f99c733",
+    "0x6685273e79268bff2444bf24e9c91640d5f7da1682ea262e6619b1f2d24db1d4",
+    "0x1cbd7173354ffd4c8be35924a6222a91e57ecefef362c65750175ab02ee34bdf",
+    "0xa21d7616015de54f53a7dbf7b18d71bf54297405fafa183110097cfc50553bea",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x8da8058de88f2fb0be6a3028ea1c9cfb81eda77f",
+   "axlRegen": "635617312004",
+   "wallet": "9776608321",
+   "v4": "625840703683",
+   "lp": {},
+   "imdo": "320361683383423612632831",
+   "proof": [
+    "0xb4ffc66b33c2c3e0b228d09ddb6b64e35ece1e70ae098e72e98404272bf032d2",
+    "0x8418c6e7628cf911719ef650c2f11003b60073138888cb6ab2943bf3234e43b1",
+    "0xd968625cef0a009256c7755b3c12f6f2585de8c827696a85ad065defded0759d",
+    "0xa21d7616015de54f53a7dbf7b18d71bf54297405fafa183110097cfc50553bea",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xba04eab4fe20ea102fd5cbab1391b959a358d7a0",
+   "axlRegen": "432442898228",
+   "wallet": "112997826985",
+   "v4": "0",
+   "lp": {
+    "hydrex vAMM-axlREGEN/WETH": "319445071243"
+   },
+   "imdo": "282512395129220723220787",
+   "proof": [
+    "0x3867b2f78ee3c06bb83632132af9691e38fdec94182eca59459d5aa3b67647b5",
+    "0xbe49b63c306b12095c9123e65c8f977cb761fdebc766360afd3540d2c8d5f232",
+    "0x075d49ce42ae91e67e1705d99375700ee12ac9152043067d5566e0a0d102eb6b",
+    "0xd7c610908a730a4c782f29444e7b3c5271e9541e409c46f6f0037e33861c8747",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x60861cee43196fa595783e8694c4b156b363ffad",
+   "axlRegen": "305876286300",
+   "wallet": "3400357354",
+   "v4": "0",
+   "lp": {
+    "hydrex vAMM-axlREGEN/WETH": "302475928946"
+   },
+   "imdo": "254178752873349867114556",
+   "proof": [
+    "0x4de5dd7c19e006f2922ec812665083c94c2a305c8e10744f6a36ee47af45cd61",
+    "0x1d25b0aaca99c1371ea156bfb0f7c1ded8652e3d9436b06431d7431a686793e2",
+    "0x1e2d6ba6d9467fdaf36afa13b14056490d66cd24aa4a179ce21b6ee77870687c",
+    "0x6e0cbfe35ff2c7ad7495747261f2f6a1d56948882552d4acf46c471e4a0f5558",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x9ff548c1b3ea3dd123afe39c759dda548009b6c8",
+   "axlRegen": "228897751922",
+   "wallet": "228897751922",
+   "v4": "0",
+   "lp": {},
+   "imdo": "233952787918535769092730",
+   "proof": [
+    "0xe48d2a24a87230b31cd732403c0b1f11aa46860c1e9cdaf42e0e4c58092e511f",
+    "0xe6cabbfca7f374fe48ea7dd25c4ca2e99310656abe67deb8aa6c133feeba52f2",
+    "0xcda25a40b66c85b764b00d2059997db58fc52047439407aad69d5bd66eb6413e",
+    "0x45952e9c90a2084b963d0b2bd3e2ef19c0651d95d48cd2e68bb5306c63d1ea32",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x854a4af0044c1952776e05474aa85d4636d75910",
+   "axlRegen": "226587554902",
+   "wallet": "211096573014",
+   "v4": "0",
+   "lp": {
+    "hydrex vAMM-axlREGEN/cbBTC": "15490981888"
+   },
+   "imdo": "233296910296320915187858",
+   "proof": [
+    "0x77497e261fae6a21ec9e59cc9e3240f4a9c8ec7afca4e2f1909340cabe7f1c67",
+    "0xf74ae2aab29c5d4987fbdace782c5891af81bd28a73d3b7ef46a7d8ecc1d75ee",
+    "0x86836688fcf576d958a66f0a3d336a1db1c3b09a9241c9edb528266f6c9235ee",
+    "0x55ce423b8d7bf4e2995819b9ba559ccced792e8549a2e6f9aaa10a60f767c081",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xf30aa4f9adecb8bb209f764d300cbf78341d5e55",
+   "axlRegen": "133443557923",
+   "wallet": "133443557923",
+   "v4": "0",
+   "lp": {},
+   "imdo": "203291051127613014208461",
+   "proof": [
+    "0xd71e8b0643a47703fa525dec49f66c4fe4e2c674e86c0854c58895b119ef0f23",
+    "0x519ea7b07e0c24c3a6885b92aef8df700140f8e017e8b66849880ae6321dd35a",
+    "0xd7ab67a9a21650a23c3ca43bf57a5107d039bb56831ab613a4765a1e8084179a",
+    "0x4ffebf59a6d9ef0ab59139b7383731efd028a1db9e4b7cd2ff9f4a5d44433f9c",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x1df428833f2c9fb1ef098754e5d710432450d706",
+   "axlRegen": "114473925128",
+   "wallet": "101023343403",
+   "v4": "0",
+   "lp": {
+    "hydrex vAMM-axlREGEN/WETH": "13450581725"
+   },
+   "imdo": "195984249187566542607072",
+   "proof": [
+    "0x61ac5d1a3af51863ea478bec6c5810fd2b6d3d9e2276bbc7990e79953d5d44cd",
+    "0xd50b3015915dfee386f6cba2e0a9d807033e4b0f7e124d3110370bfdb102c2b7",
+    "0x67581b3cdd21335d988c25cf1ada1c231931baac328f3c3955578c13a340dced",
+    "0x6e0cbfe35ff2c7ad7495747261f2f6a1d56948882552d4acf46c471e4a0f5558",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x8da49b997232778d598adf3db4603164da6adf9b",
+   "axlRegen": "113158332567",
+   "wallet": "113158332567",
+   "v4": "0",
+   "lp": {},
+   "imdo": "195456023780253835887817",
+   "proof": [
+    "0x0fc007626e967cf9b5411fa0faba4c694fa6eb66f9451828d5cecd779950ad56",
+    "0xce9a302bd90c860294e1c9df5de5c002ac1eeb9b8771a88c8e5dc5e1e07cacca",
+    "0x3e5e9e1f25fa51a64c9e9687c7f30e007ccad1dcfd63d3d33921fecbc4bf6dfe",
+    "0xd7c610908a730a4c782f29444e7b3c5271e9541e409c46f6f0037e33861c8747",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xc0a52f5cb32784f9588d8c60b78a498711675e7d",
+   "axlRegen": "92735508783",
+   "wallet": "92735508783",
+   "v4": "0",
+   "lp": {},
+   "imdo": "186819850048073538499900",
+   "proof": [
+    "0xda82a6f0aeb86499baeb1f253aed20eef9ea677897f2c9a6bd24c3bac416b98a",
+    "0x57315eac93aa16c8c81fe9ceb7916b77029b527d6b289acde3b1285c418ae7e4",
+    "0xcda25a40b66c85b764b00d2059997db58fc52047439407aad69d5bd66eb6413e",
+    "0x45952e9c90a2084b963d0b2bd3e2ef19c0651d95d48cd2e68bb5306c63d1ea32",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x741acb797fe6906aa99b25a15125ded583cd2be6",
+   "axlRegen": "84077878148",
+   "wallet": "84077878148",
+   "v4": "0",
+   "lp": {},
+   "imdo": "182872659267107781363305",
+   "proof": [
+    "0x52d9cd408063791c06d9003f2d99d876aac7c82bd80e4ec6225e4c583eae3f90",
+    "0xd50b3015915dfee386f6cba2e0a9d807033e4b0f7e124d3110370bfdb102c2b7",
+    "0x67581b3cdd21335d988c25cf1ada1c231931baac328f3c3955578c13a340dced",
+    "0x6e0cbfe35ff2c7ad7495747261f2f6a1d56948882552d4acf46c471e4a0f5558",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x04d4aad9e6b34a8bdd40cf34fd6b3bb56bed30ce",
+   "axlRegen": "82259171755",
+   "wallet": "82259171755",
+   "v4": "0",
+   "lp": {},
+   "imdo": "182018121191552643197163",
+   "proof": [
+    "0x1e116a0b0ade45898502933cc4a5b1a1e7b52dff73275c30902bc8f743adda07",
+    "0x1c72f673225546bc9cc71b9d39bc1432078d170b7c3f0e1600f111b624363278",
+    "0x3e5e9e1f25fa51a64c9e9687c7f30e007ccad1dcfd63d3d33921fecbc4bf6dfe",
+    "0xd7c610908a730a4c782f29444e7b3c5271e9541e409c46f6f0037e33861c8747",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xfc7e1d6108169ac2093626426801e458449ec19a",
+   "axlRegen": "78273342097",
+   "wallet": "78273342097",
+   "v4": "0",
+   "lp": {},
+   "imdo": "180111468682345412940644",
+   "proof": [
+    "0x0239659c4143882dac6fbb6457bf6fba671a97a66a5955a1c5e54213a2518a52",
+    "0x89c0fc1f33bddc447ac119b0fb04348a3ccb383953f461ec486148b32f96dd07",
+    "0x67b7cef92ff21ef60e73c97bc59f2e719a3f986d8b6bc0a77a81b34e5e4af362",
+    "0x344031390b173ebac2b7adff6153a41d229c660f21d6dd671156f901e54d96c4",
+    "0x45952e9c90a2084b963d0b2bd3e2ef19c0651d95d48cd2e68bb5306c63d1ea32",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x5edb13dcfb8216b0377fe0f7c4a3dd9af5567ba0",
+   "axlRegen": "77280164038",
+   "wallet": "77280164038",
+   "v4": "0",
+   "lp": {},
+   "imdo": "179629046299063412961027",
+   "proof": [
+    "0xf1871ff809adc73d7f31dd1fa1723e5d4029f32151ed0df79eaa3abc1919335c",
+    "0x0bbe4a13932475ba37a725e17f9ac53523cc02f3845bae06272626bc2347dd71",
+    "0x344031390b173ebac2b7adff6153a41d229c660f21d6dd671156f901e54d96c4",
+    "0x45952e9c90a2084b963d0b2bd3e2ef19c0651d95d48cd2e68bb5306c63d1ea32",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x5cc2679ed8c6899e37c4449a1e66e12b11aa4807",
+   "axlRegen": "71347748295",
+   "wallet": "71347748295",
+   "v4": "0",
+   "lp": {},
+   "imdo": "176679223141961565894649",
+   "proof": [
+    "0xd4c637864a95c11f40241689a74a12a4dbfa60a655c07bb84aca32616de80547",
+    "0x519ea7b07e0c24c3a6885b92aef8df700140f8e017e8b66849880ae6321dd35a",
+    "0xd7ab67a9a21650a23c3ca43bf57a5107d039bb56831ab613a4765a1e8084179a",
+    "0x4ffebf59a6d9ef0ab59139b7383731efd028a1db9e4b7cd2ff9f4a5d44433f9c",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0xa11bbd8e24012e17f9d07367d0cff8b87a2bcd64",
+   "axlRegen": "55218538112",
+   "wallet": "55218538112",
+   "v4": "0",
+   "lp": {},
+   "imdo": "167973125266586461768114",
+   "proof": [
+    "0x479f432b80580e513977098bb5dfbef5e706a35ad1d4252f4af902fa508073e0",
+    "0x1d25b0aaca99c1371ea156bfb0f7c1ded8652e3d9436b06431d7431a686793e2",
+    "0x1e2d6ba6d9467fdaf36afa13b14056490d66cd24aa4a179ce21b6ee77870687c",
+    "0x6e0cbfe35ff2c7ad7495747261f2f6a1d56948882552d4acf46c471e4a0f5558",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xd864b7da13e877b59baf4ececf9f84f4be96cd4f",
+   "axlRegen": "27793660220",
+   "wallet": "27793660220",
+   "v4": "0",
+   "lp": {},
+   "imdo": "149469787653424269291481",
+   "proof": [
+    "0x6fc8516f85e3da102f82ba73aa3d31abbd237ea55264775034f97cfe3df896af",
+    "0xf74ae2aab29c5d4987fbdace782c5891af81bd28a73d3b7ef46a7d8ecc1d75ee",
+    "0x86836688fcf576d958a66f0a3d336a1db1c3b09a9241c9edb528266f6c9235ee",
+    "0x55ce423b8d7bf4e2995819b9ba559ccced792e8549a2e6f9aaa10a60f767c081",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xabef3d8199bde5719b23a6c8e60dcce50eb2356c",
+   "axlRegen": "25487506385",
+   "wallet": "25487506385",
+   "v4": "0",
+   "lp": {},
+   "imdo": "147554733406081228922958",
+   "proof": [
+    "0xbb337fd8199283a1417f8f2a0fd3390410394f3ef01a4b30c53216d4aa499ed5",
+    "0x1311081d56647c0f8919d1abc26f9218204000ceb5397a6e015c3558c1c4cc5a",
+    "0x1cbd7173354ffd4c8be35924a6222a91e57ecefef362c65750175ab02ee34bdf",
+    "0xa21d7616015de54f53a7dbf7b18d71bf54297405fafa183110097cfc50553bea",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xb9135d80a9994d71ea998aaf506d0c7696e07d02",
+   "axlRegen": "25000000000",
+   "wallet": "25000000000",
+   "v4": "0",
+   "lp": {},
+   "imdo": "147138711856453212086602",
+   "proof": [
+    "0x3d61d976ee78b099beafa7fb45fc75f79868a8271e924e58d2d575fcb236aacc",
+    "0xd16c1f28c077d24241ab0fe11caa79521b674b7e9f977f8bad35db7ed35881ae",
+    "0x1e2d6ba6d9467fdaf36afa13b14056490d66cd24aa4a179ce21b6ee77870687c",
+    "0x6e0cbfe35ff2c7ad7495747261f2f6a1d56948882552d4acf46c471e4a0f5558",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x86790abbaccd1b21f5ecfdaa67ec6282afbf3e83",
+   "axlRegen": "16605000000",
+   "wallet": "16605000000",
+   "v4": "0",
+   "lp": {},
+   "imdo": "139210452318167624781135",
+   "proof": [
+    "0x2e6ae1ffcf284b28c5a2d64d25abccee0d3f53fb226763465c387c180097c486",
+    "0x20739be3c94a073db9d3e789dbd61bbb8a8ddd79d770fc2e054271b2988e5613",
+    "0x075d49ce42ae91e67e1705d99375700ee12ac9152043067d5566e0a0d102eb6b",
+    "0xd7c610908a730a4c782f29444e7b3c5271e9541e409c46f6f0037e33861c8747",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x217c05f5d1d1e595bbae94534540b803bfc4563b",
+   "axlRegen": "16446395662",
+   "wallet": "16446395662",
+   "v4": "0",
+   "lp": {},
+   "imdo": "139043230626883920293818",
+   "proof": [
+    "0x113eb0511f51db6086406987052f0dae0d1ae9301de730a6aba4f668ca5db7b0",
+    "0xce9a302bd90c860294e1c9df5de5c002ac1eeb9b8771a88c8e5dc5e1e07cacca",
+    "0x3e5e9e1f25fa51a64c9e9687c7f30e007ccad1dcfd63d3d33921fecbc4bf6dfe",
+    "0xd7c610908a730a4c782f29444e7b3c5271e9541e409c46f6f0037e33861c8747",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xf5535d4b271edc5e35dadc460385fe44f286ab8e",
+   "axlRegen": "13690938007",
+   "wallet": "0",
+   "v4": "0",
+   "lp": {
+    "hydrex vAMM-axlREGEN/WETH": "13690938007"
+   },
+   "imdo": "135998278112179836152809",
+   "proof": [
+    "0xc92da9b4ae3ebb8fde8fceeb6e28be98b916b8bca58ef3ba46f0ff1e0125ff4b",
+    "0xfaef0294faab1b112c712155323b2a12215c8fb9c286a77422e150d7bf6feb75",
+    "0xf6cc471f9dc97d8bd47d0753ef82cf58510709af9bb56a80ca36556c13796213",
+    "0x4ffebf59a6d9ef0ab59139b7383731efd028a1db9e4b7cd2ff9f4a5d44433f9c",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x566d1086230b73eb180e1ca7eaea6b8476ce4a92",
+   "axlRegen": "13089861355",
+   "wallet": "13089861355",
+   "v4": "0",
+   "lp": {},
+   "imdo": "135294158251636782249974",
+   "proof": [
+    "0x8f8a743abab23668d4fe540787226a37418d851a1bf83e8dd7fb18fecf7e5d31",
+    "0x94cf2cfd904a119b7991a67ccaa36f519bc30a9a210abb1e90dca38a60bf02a1",
+    "0x1883bce86fef6eff9618430583c5ffc1c71a6cc3f4daf703af3805d15e28c1b9",
+    "0x55ce423b8d7bf4e2995819b9ba559ccced792e8549a2e6f9aaa10a60f767c081",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xd2d285022bb2028c2d5889faaf5a6d698ea41e0f",
+   "axlRegen": "12413762505",
+   "wallet": "12413762505",
+   "v4": "0",
+   "lp": {},
+   "imdo": "134482983985814857565147",
+   "proof": [
+    "0x0463f5cbf0f9ad706e27edbf13c0ad4f4d1151381e022952da59e3f219fb49b4",
+    "0x89c0fc1f33bddc447ac119b0fb04348a3ccb383953f461ec486148b32f96dd07",
+    "0x67b7cef92ff21ef60e73c97bc59f2e719a3f986d8b6bc0a77a81b34e5e4af362",
+    "0x344031390b173ebac2b7adff6153a41d229c660f21d6dd671156f901e54d96c4",
+    "0x45952e9c90a2084b963d0b2bd3e2ef19c0651d95d48cd2e68bb5306c63d1ea32",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x5aafc1f252d544f744d17a4e734afd6efc47ede4",
+   "axlRegen": "10822252522",
+   "wallet": "10822252522",
+   "v4": "0",
+   "lp": {},
+   "imdo": "132480931095194557649737",
+   "proof": [
+    "0x659f1d68101b793d0df6c0a184eb914af21d439d95b6126caf2c4c49cbc441c9",
+    "0x96963d6dcacfa13d341e6752e8d403630096f52ce8a3157a805bdeb17cedfdaf",
+    "0x67581b3cdd21335d988c25cf1ada1c231931baac328f3c3955578c13a340dced",
+    "0x6e0cbfe35ff2c7ad7495747261f2f6a1d56948882552d4acf46c471e4a0f5558",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x1640b54a3ab05699e2629bee478d1eec78322aa8",
+   "axlRegen": "9894831423",
+   "wallet": "9894831423",
+   "v4": "0",
+   "lp": {},
+   "imdo": "131245604565419638600808",
+   "proof": [
+    "0xca921ffe22ae886e8da4576a60eabc533294ce766457d1572087e0ece4f38305",
+    "0xf900b84472bc63b9ed8a643e87bf9633b40a40d22e2619f00eed7f88f3b42045",
+    "0xf6cc471f9dc97d8bd47d0753ef82cf58510709af9bb56a80ca36556c13796213",
+    "0x4ffebf59a6d9ef0ab59139b7383731efd028a1db9e4b7cd2ff9f4a5d44433f9c",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0xaaf7595e927e2af70f6f9f90ef9424bef9c4678c",
+   "axlRegen": "8033497216",
+   "wallet": "8033497216",
+   "v4": "0",
+   "lp": {},
+   "imdo": "128577917195394511747229",
+   "proof": [
+    "0xcb59a615a70be10a4125b2510cb8e6f7736a3750055af3241706383120af9cee",
+    "0xf900b84472bc63b9ed8a643e87bf9633b40a40d22e2619f00eed7f88f3b42045",
+    "0xf6cc471f9dc97d8bd47d0753ef82cf58510709af9bb56a80ca36556c13796213",
+    "0x4ffebf59a6d9ef0ab59139b7383731efd028a1db9e4b7cd2ff9f4a5d44433f9c",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x782cf7c3f427a4551a68f436e34615db2cf24426",
+   "axlRegen": "6827593227",
+   "wallet": "6827593227",
+   "v4": "0",
+   "lp": {},
+   "imdo": "126680750519566421939747",
+   "proof": [
+    "0xe1bbc04b17e8be22a56f212ec9101cef0e7ef2d51e09ffd08034bcee582af261",
+    "0x57315eac93aa16c8c81fe9ceb7916b77029b527d6b289acde3b1285c418ae7e4",
+    "0xcda25a40b66c85b764b00d2059997db58fc52047439407aad69d5bd66eb6413e",
+    "0x45952e9c90a2084b963d0b2bd3e2ef19c0651d95d48cd2e68bb5306c63d1ea32",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0xd94c3e819c13905f8ab1a712f48851bd992c68df",
+   "axlRegen": "6234263258",
+   "wallet": "6234263258",
+   "v4": "0",
+   "lp": {},
+   "imdo": "125685551086189172543594",
+   "proof": [
+    "0x6f92168415f189509d8b6dd7ae66da2b10e3da94537e2f5e4e37fabae5c7e3d7",
+    "0x3cd56dd73648fbf00283eb5cb03a7815fbe21383f638f70b8fcdc7733c4213aa",
+    "0x86836688fcf576d958a66f0a3d336a1db1c3b09a9241c9edb528266f6c9235ee",
+    "0x55ce423b8d7bf4e2995819b9ba559ccced792e8549a2e6f9aaa10a60f767c081",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x62478fe1308b38f59b99c1372b2ca4e1a526d2f5",
+   "axlRegen": "3903406142",
+   "wallet": "3903406142",
+   "v4": "0",
+   "lp": {},
+   "imdo": "121219078683668183968264",
+   "proof": [
+    "0xd016b2c90a41950c93e7cbdf8947d5aa446c1a3b6333c7234c415a8dfc0e4010",
+    "0xa0256f9ef95610c721378833bb79c64f87ccc2b0132d6b67f051dc69d6b62334",
+    "0xd7ab67a9a21650a23c3ca43bf57a5107d039bb56831ab613a4765a1e8084179a",
+    "0x4ffebf59a6d9ef0ab59139b7383731efd028a1db9e4b7cd2ff9f4a5d44433f9c",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x0d907ecc20a7639860e88eb5a7982c5ed8172194",
+   "axlRegen": "3428361163",
+   "wallet": "3428361163",
+   "v4": "0",
+   "lp": {},
+   "imdo": "120155310226150290754784",
+   "proof": [
+    "0x2fd13892274a2234ec73914bd9266276dd1d52851d2e1a813476886dba71f980",
+    "0xbe49b63c306b12095c9123e65c8f977cb761fdebc766360afd3540d2c8d5f232",
+    "0x075d49ce42ae91e67e1705d99375700ee12ac9152043067d5566e0a0d102eb6b",
+    "0xd7c610908a730a4c782f29444e7b3c5271e9541e409c46f6f0037e33861c8747",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x2c8467da8b7b3d0a7e3886f6cb6697c49571ff66",
+   "axlRegen": "3225316006",
+   "wallet": "3225316006",
+   "v4": "0",
+   "lp": {},
+   "imdo": "119678037295274109876072",
+   "proof": [
+    "0xc9b3978137e2d81fff255e42aa13963e476e8045f3b8373d3e1190e42ce9ef70",
+    "0xfaef0294faab1b112c712155323b2a12215c8fb9c286a77422e150d7bf6feb75",
+    "0xf6cc471f9dc97d8bd47d0753ef82cf58510709af9bb56a80ca36556c13796213",
+    "0x4ffebf59a6d9ef0ab59139b7383731efd028a1db9e4b7cd2ff9f4a5d44433f9c",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x258923c667cae55a93f66abcb796971a843737c2",
+   "axlRegen": "2623437388",
+   "wallet": "2623437388",
+   "v4": "0",
+   "lp": {},
+   "imdo": "118167892621314950389316",
+   "proof": [
+    "0xead9815730d555cb35d7e83608aafd3d3a03b8ed6f2c7a203b4493a2bf9e06fd",
+    "0xe6cabbfca7f374fe48ea7dd25c4ca2e99310656abe67deb8aa6c133feeba52f2",
+    "0xcda25a40b66c85b764b00d2059997db58fc52047439407aad69d5bd66eb6413e",
+    "0x45952e9c90a2084b963d0b2bd3e2ef19c0651d95d48cd2e68bb5306c63d1ea32",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x4b6e5df53043a49fae331ee168ebd528a0e3453a",
+   "axlRegen": "2462284179",
+   "wallet": "2462284179",
+   "v4": "0",
+   "lp": {},
+   "imdo": "117734796571604480744694",
+   "proof": [
+    "0x3bf063f68dd64fb8bcb99c5d5421e161e16d427577b2812b09dd165fff880ae1",
+    "0xd16c1f28c077d24241ab0fe11caa79521b674b7e9f977f8bad35db7ed35881ae",
+    "0x1e2d6ba6d9467fdaf36afa13b14056490d66cd24aa4a179ce21b6ee77870687c",
+    "0x6e0cbfe35ff2c7ad7495747261f2f6a1d56948882552d4acf46c471e4a0f5558",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x59dda36bd196ec849838ce2163e6821f946b37dc",
+   "axlRegen": "1944223297",
+   "wallet": "1944223297",
+   "v4": "0",
+   "lp": {},
+   "imdo": "116236576945321954965300",
+   "proof": [
+    "0x2f58371570adb0c01cbfabaed3a9bb51d716bdf7ab8e3162f680606b3cbfb78a",
+    "0x20739be3c94a073db9d3e789dbd61bbb8a8ddd79d770fc2e054271b2988e5613",
+    "0x075d49ce42ae91e67e1705d99375700ee12ac9152043067d5566e0a0d102eb6b",
+    "0xd7c610908a730a4c782f29444e7b3c5271e9541e409c46f6f0037e33861c8747",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xa01e98dce4426762c0c671360bc04dd8a968e798",
+   "axlRegen": "1892249961",
+   "wallet": "1892249961",
+   "v4": "0",
+   "lp": {},
+   "imdo": "116075588801687399915921",
+   "proof": [
+    "0xbb04f2d05fd6453f2cf79790d9cc4fd969b1614f682b2648e938a8e00b10f59e",
+    "0x6685273e79268bff2444bf24e9c91640d5f7da1682ea262e6619b1f2d24db1d4",
+    "0x1cbd7173354ffd4c8be35924a6222a91e57ecefef362c65750175ab02ee34bdf",
+    "0xa21d7616015de54f53a7dbf7b18d71bf54297405fafa183110097cfc50553bea",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x0be09ded9bc1a96de1c272b487fa7c8b0c5b01c5",
+   "axlRegen": "1384621162",
+   "wallet": "1384621162",
+   "v4": "0",
+   "lp": {},
+   "imdo": "114371120055361277516028",
+   "proof": [
+    "0xc2d840fa962d277512382dfc5e044e87072d0db419204c007f390e33e7507a6a",
+    "0x1311081d56647c0f8919d1abc26f9218204000ceb5397a6e015c3558c1c4cc5a",
+    "0x1cbd7173354ffd4c8be35924a6222a91e57ecefef362c65750175ab02ee34bdf",
+    "0xa21d7616015de54f53a7dbf7b18d71bf54297405fafa183110097cfc50553bea",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x780b471379ea0076074b5af4da2dfeb6b29dbb10",
+   "axlRegen": "1374022433",
+   "wallet": "1374022433",
+   "v4": "0",
+   "lp": {},
+   "imdo": "114332363650412217967104",
+   "proof": [
+    "0x6b53bb8c46d50f353f1a262a5fb74304afbaccea02bd90827ea643659bc07698",
+    "0x96963d6dcacfa13d341e6752e8d403630096f52ce8a3157a805bdeb17cedfdaf",
+    "0x67581b3cdd21335d988c25cf1ada1c231931baac328f3c3955578c13a340dced",
+    "0x6e0cbfe35ff2c7ad7495747261f2f6a1d56948882552d4acf46c471e4a0f5558",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xdb87ec316110f469fa2880d3a30a43e09fd8a0dd",
+   "axlRegen": "1317543691",
+   "wallet": "1317543691",
+   "v4": "0",
+   "lp": {},
+   "imdo": "114123675316071128088281",
+   "proof": [
+    "0x23382cafcc8634f7933ec0fd13cf357f0317a80a5f1bbf9c660bf3ed4582fcb9",
+    "0x1c72f673225546bc9cc71b9d39bc1432078d170b7c3f0e1600f111b624363278",
+    "0x3e5e9e1f25fa51a64c9e9687c7f30e007ccad1dcfd63d3d33921fecbc4bf6dfe",
+    "0xd7c610908a730a4c782f29444e7b3c5271e9541e409c46f6f0037e33861c8747",
+    "0xd8fd03fd1975e6d2b2e3ef73e655aa86b741e76f448de96c57012c3e03bc9bdb",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xa2cce054e749a5022ed5304da713c4da624ef1cd",
+   "axlRegen": "1248501144",
+   "wallet": "1248501144",
+   "v4": "0",
+   "lp": {},
+   "imdo": "113862679386239349447623",
+   "proof": [
+    "0x058a81eb5376c53ac1c0599a5645cb354309f9cbc629179c7aeb314e60010b2d",
+    "0x9e591e08dc6cd0ab34a98f789ef3a7e63ff6a3d293a0bb2e5d7caf8900881c85",
+    "0x67b7cef92ff21ef60e73c97bc59f2e719a3f986d8b6bc0a77a81b34e5e4af362",
+    "0x344031390b173ebac2b7adff6153a41d229c660f21d6dd671156f901e54d96c4",
+    "0x45952e9c90a2084b963d0b2bd3e2ef19c0651d95d48cd2e68bb5306c63d1ea32",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  },
+  {
+   "address": "0x34e3ce5ecfb16ffe49c15c07649ce7f6622c4116",
+   "axlRegen": "1126603516",
+   "wallet": "1126603516",
+   "v4": "0",
+   "lp": {},
+   "imdo": "113382967241065675310588",
+   "proof": [
+    "0x8e864561d9fc747d33f0ba004b32a8afea26ba29918479ae364deba278dfdfeb",
+    "0xbf60803cacba28368418d124faa6f49835b44d19852d9daf1598411a81ce1458",
+    "0x1883bce86fef6eff9618430583c5ffc1c71a6cc3f4daf703af3805d15e28c1b9",
+    "0x55ce423b8d7bf4e2995819b9ba559ccced792e8549a2e6f9aaa10a60f767c081",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0xe56169888ab88d11c6ad4247b8650e72566f8569",
+   "axlRegen": "1034508310",
+   "wallet": "1034508310",
+   "v4": "0",
+   "lp": {},
+   "imdo": "113003262882089224764834",
+   "proof": [
+    "0x7b3993ddcb3f23ebdb8ffef8028ddb82e595ffa73d4bc35f67cecee9cf8b41cb",
+    "0xbf60803cacba28368418d124faa6f49835b44d19852d9daf1598411a81ce1458",
+    "0x1883bce86fef6eff9618430583c5ffc1c71a6cc3f4daf703af3805d15e28c1b9",
+    "0x55ce423b8d7bf4e2995819b9ba559ccced792e8549a2e6f9aaa10a60f767c081",
+    "0x15494e3f6a61c1161180f0671987f9553b137f9face90a43c9eab899d1540ba5",
+    "0xc7ec6207cb353bfb92ed1e77a3efe1816a5ea4e9f129de018701d6ac2929979a"
+   ]
+  },
+  {
+   "address": "0x1ae3753d9b60743a89159ccff8e251c60b560311",
+   "axlRegen": "1002588198",
+   "wallet": "1002588198",
+   "v4": "0",
+   "lp": {},
+   "imdo": "112867750976672932635727",
+   "proof": [
+    "0xd4364849e8222ddb4a856b66bb959db3c7ea6221d2b4e4a4fc0300dc5a2ddf40",
+    "0xa0256f9ef95610c721378833bb79c64f87ccc2b0132d6b67f051dc69d6b62334",
+    "0xd7ab67a9a21650a23c3ca43bf57a5107d039bb56831ab613a4765a1e8084179a",
+    "0x4ffebf59a6d9ef0ab59139b7383731efd028a1db9e4b7cd2ff9f4a5d44433f9c",
+    "0x5d290e3ad62febc67d779f7f0dda52c9558032270fc7bfaf6298a655b59ae7a6"
+   ]
+  }
+ ],
+ "belowMinimum": [
+  {
+   "address": "0xf427ebbeb0aee1b06c99333001009188b5086934",
+   "axlRegen": "35368206"
+  },
+  {
+   "address": "0xa57adce1d2fe72949e4308867d894cd7e7de0ef2",
+   "axlRegen": "6742044"
+  },
+  {
+   "address": "0x8a0f0a09e622bc0677a404343129fb5dda1e2d33",
+   "axlRegen": "96287513"
+  },
+  {
+   "address": "0x1bf29a3714099fa58aa1cc3af24002b26623eb31",
+   "axlRegen": "71983497"
+  },
+  {
+   "address": "0xdebede07650a5cd8ccf73403184a61b8021806c8",
+   "axlRegen": "301563974"
+  },
+  {
+   "address": "0x3b23ff435696de98414761adb37c66546d374e31",
+   "axlRegen": "883637"
+  },
+  {
+   "address": "0x9f7f3a63b6b4a01faf5bb55f88a55b9d597e31fe",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x0825e8dfc95f8413a3ed04a1d69979d9c2705b34",
+   "axlRegen": "2"
+  },
+  {
+   "address": "0xb993f8adafc494a0359468fad9c9bbb8f5fb35a9",
+   "axlRegen": "5"
+  },
+  {
+   "address": "0x87e0c3a1272a707d0a2dc4dbfa1b699f93e134d3",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xcc090c6691b123c1944ec21934699f7b7170b6a9",
+   "axlRegen": "2216"
+  },
+  {
+   "address": "0x6be3dabf3c5e55f0c4a96e51fcea83d202851e24",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xd64af81385b5a2c37238b504ee1532ab6794ed1e",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xd962d6aa3f0cac662ce75715d8d31e208194cde6",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x5d64d14d2cf4fe5fe4e65b1c7e3d11e18d493091",
+   "axlRegen": "615894145"
+  },
+  {
+   "address": "0xc5b9bd5aae0ffbaf0b9f184394b7f9cd389906aa",
+   "axlRegen": "13264"
+  },
+  {
+   "address": "0x1efc59de75b5df1d4a9b6f0695bc7bbde3c0935f",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x7f5446198a1c84d5be96410e24b721e76e423e14",
+   "axlRegen": "254563666"
+  },
+  {
+   "address": "0xf5c4f3dc02c3fb9279495a8fef7b0741da956157",
+   "axlRegen": "14510311"
+  },
+  {
+   "address": "0x46ef18984b0418ab66ee7126d8eb0b7eb268a37f",
+   "axlRegen": "50107000"
+  },
+  {
+   "address": "0x0a6d96e7f4d7b96cfe42185df61e64d255c12dff",
+   "axlRegen": "735558"
+  },
+  {
+   "address": "0x34c75a68cc34c0d0d77f4705b11580d64f8641f8",
+   "axlRegen": "124"
+  },
+  {
+   "address": "0xc6d3498019221316c4cf6d881ca338c1c3e77fb0",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x19ceead7105607cd444f5ad10dd51356436095a1",
+   "axlRegen": "300910034"
+  },
+  {
+   "address": "0x6a000f20005980200259b80c5102003040001068",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xc7d3ab410d49b664d03fe5b1038852ac852b1b29",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x79c2d72552df1c5d551b812eca906a90ce9d840a",
+   "axlRegen": "1998556"
+  },
+  {
+   "address": "0x7eddce062a290c59feb95e2bd7611eee24610a6b",
+   "axlRegen": "14457501"
+  },
+  {
+   "address": "0xad01c20d5886137e056775af56915de824c8fce5",
+   "axlRegen": "15954994"
+  },
+  {
+   "address": "0x6e4141d33021b52c91c28608403db4a0ffb50ec6",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x1111111254eeb25477b68fb85ed929f73a960582",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x678c4d9663e0afa8b2126967334c145d9b3560e2",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xcebda550ff74f50e2b4941b2824c99aff9bda3a6",
+   "axlRegen": "122818"
+  },
+  {
+   "address": "0x382ffce2287252f930e1c8dc9328dac5bf282ba1",
+   "axlRegen": "68954303"
+  },
+  {
+   "address": "0x00c600b30fb0400701010f4b080409018b9006e0",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x4e8a6eb77024169bad60e3a7f10d6dd0089c5fcd",
+   "axlRegen": "9292500"
+  },
+  {
+   "address": "0xde8edc2b0a228f60e0cf33968487db40c613603a",
+   "axlRegen": "32500"
+  },
+  {
+   "address": "0x39041f1b366fe33f9a5a79de5120f2aee2577ebc",
+   "axlRegen": "6145364"
+  },
+  {
+   "address": "0x86924c37a93734e8611eb081238928a9d18a63c0",
+   "axlRegen": "342152"
+  },
+  {
+   "address": "0x7ae90ae51c836a51b0d165fe452c0af3677fb9fd",
+   "axlRegen": "10595000"
+  },
+  {
+   "address": "0x6530a2393e9e9a348502d86997ff31d065e16d70",
+   "axlRegen": "409297"
+  },
+  {
+   "address": "0xd7a634aa19b529fc84a2870d8930e481a790caca",
+   "axlRegen": "1236"
+  },
+  {
+   "address": "0xafbc1308e1fb195aee254146c5770a27fbc9345f",
+   "axlRegen": "2718750"
+  },
+  {
+   "address": "0x403560800cb7e03a06ebbc991dba0f6ac751a1c5",
+   "axlRegen": "188569"
+  },
+  {
+   "address": "0x7e9da87e53792dde03b62063d826ff62c4c3bb70",
+   "axlRegen": "35300000"
+  },
+  {
+   "address": "0x1ce35fbeb3e428327cd6e791a756159e6b853be2",
+   "axlRegen": "25272602"
+  },
+  {
+   "address": "0x63242a4ea82847b20e506b63b0e2e2eff0cc6cb0",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xeb9934d105630ed58a6843c2b7fa309303feb23e",
+   "axlRegen": "42361786"
+  },
+  {
+   "address": "0x96b8525e0756d5a81dc4512d6e95cf0b5ec95d2d",
+   "axlRegen": "15263418"
+  },
+  {
+   "address": "0x634bb8620463a610fc23223c32aef5244a0ec777",
+   "axlRegen": "363100000"
+  },
+  {
+   "address": "0x00000009e70d153a81f4c972dd123c4b71b7441c",
+   "axlRegen": "387139"
+  },
+  {
+   "address": "0xc52436e43a1ac8e5fe995729bed0a13dd0caebde",
+   "axlRegen": "1502984"
+  },
+  {
+   "address": "0xba2304d1f48ac01cf01427fc9d9ae3d21e71b536",
+   "axlRegen": "535895145"
+  },
+  {
+   "address": "0xac0a082035cf0a8211a4b5e30ad05432c3cf2267",
+   "axlRegen": "31421347"
+  },
+  {
+   "address": "0x1f63992af4c1d369d8cef0bb59bed99c14416f85",
+   "axlRegen": "115707485"
+  },
+  {
+   "address": "0x82d6033857a51f75e5dfb891a3cca338a281ead0",
+   "axlRegen": "113046398"
+  },
+  {
+   "address": "0x4f82e73edb06d29ff62c91ec8f5ff06571bdeb29",
+   "axlRegen": "406149962"
+  },
+  {
+   "address": "0xcfd59c0f530db36eea8ccbfe744f01fe3556925e",
+   "axlRegen": "18949511"
+  },
+  {
+   "address": "0x03314c6bafe10589603ec0bbdf99f44d1dfd4ecb",
+   "axlRegen": "9876"
+  },
+  {
+   "address": "0x5f61a7ea2f576a5a53f6da22f4595997a274c0c0",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xb8b2b00506ebd0ae927e6203724e506b36f4eeeb",
+   "axlRegen": "220385"
+  },
+  {
+   "address": "0x420e2b941bbd81788a2e96b94d390338d241038f",
+   "axlRegen": "120648931"
+  },
+  {
+   "address": "0x015a0138ecc957859853908ad455647bd33e635b",
+   "axlRegen": "663156"
+  },
+  {
+   "address": "0x9c4b73d941619ddd922748610ed0e056bd977d71",
+   "axlRegen": "3137555"
+  },
+  {
+   "address": "0x6b02c2b4e93e18a7a5a0a519ba36c8eb5c8a8732",
+   "axlRegen": "466"
+  },
+  {
+   "address": "0xba971f58a00e8ffc7e91c0e8e7efccbfbfe8f09e",
+   "axlRegen": "4573686"
+  },
+  {
+   "address": "0x2bbb47182c3bcc54a72a5f75377578be8ddd77f9",
+   "axlRegen": "9439"
+  },
+  {
+   "address": "0x7472146b3932ec1331b9fc6d3c12c911bbaa56eb",
+   "axlRegen": "168740686"
+  },
+  {
+   "address": "0xadcc96b0bd79388ad549edd638a3137587ed07d0",
+   "axlRegen": "106"
+  },
+  {
+   "address": "0x48b8419b2bc0fb63ee96e3a370e30b200cc2e672",
+   "axlRegen": "167828954"
+  },
+  {
+   "address": "0x180df12082f19edf51df9688719d267baec27290",
+   "axlRegen": "8"
+  },
+  {
+   "address": "0x57b7534cb145e8a7c9acb85018bc72a149f291c6",
+   "axlRegen": "5500000"
+  },
+  {
+   "address": "0xb01f8f528702d411d24c9bb8cc0e2fff779ec013",
+   "axlRegen": "66567"
+  },
+  {
+   "address": "0xbb8962c2f191efcaa4754bd213b211eed60c5eae",
+   "axlRegen": "680006515"
+  },
+  {
+   "address": "0x48963b03d3d7d16efd5e5d302225abc393a8cad5",
+   "axlRegen": "441929"
+  },
+  {
+   "address": "0x922164bbbd36acf9e854acbbf32facc949fcaeef",
+   "axlRegen": "67462640"
+  },
+  {
+   "address": "0xc643116a111988878990859b3f517dbf69ff65fe",
+   "axlRegen": "153254342"
+  },
+  {
+   "address": "0xf41e4dfdfe5c64e9834d826696d00a4d15aeeee3",
+   "axlRegen": "64161907"
+  },
+  {
+   "address": "0x546034c86cc01ec9baa514ef682b0829c5388588",
+   "axlRegen": "7642"
+  },
+  {
+   "address": "0x4c57c514d11df2fa078074d1351c95feb3e1e52a",
+   "axlRegen": "528421"
+  },
+  {
+   "address": "0x3339e28611f1960c4d57fd71f6e7088ec8b31129",
+   "axlRegen": "38"
+  },
+  {
+   "address": "0x8cb6943c6853999edd223d4696a53c83147d9910",
+   "axlRegen": "12274116"
+  },
+  {
+   "address": "0xcd6b980029e6e6e0733ac8ec3e02be9410d09799",
+   "axlRegen": "287155850"
+  },
+  {
+   "address": "0xc2d7c2d008d7fcc21fe8ebddee1cc1cc0fcb9f96",
+   "axlRegen": "311991042"
+  },
+  {
+   "address": "0x77059a202bffa20847f924bac7c94fb386247147",
+   "axlRegen": "30950735"
+  },
+  {
+   "address": "0x46cfca98622bb57f234a9385ea5ec778c1a8f85e",
+   "axlRegen": "834050"
+  },
+  {
+   "address": "0xecb7ae3a8c07e47781d6da768c7acd13c56d4c48",
+   "axlRegen": "573280"
+  },
+  {
+   "address": "0x56e08babb8bf928bd8571d2a2a78235ae57ae5bd",
+   "axlRegen": "138353695"
+  },
+  {
+   "address": "0x80ecab3659e69db91463e2b5230ca49683a0d5c7",
+   "axlRegen": "99295802"
+  },
+  {
+   "address": "0x23cb5f48fa3f4502232f3442637f90e8e3355701",
+   "axlRegen": "70921075"
+  },
+  {
+   "address": "0x2bcdca8c689b4aa460b66ffde1d6b1761d41d5df",
+   "axlRegen": "381140567"
+  },
+  {
+   "address": "0xc769592499b21521ec62b0c2814149d3c1d48f4e",
+   "axlRegen": "72243"
+  },
+  {
+   "address": "0xf4ceca9f353edbee94fb0da164e03fe7418357d0",
+   "axlRegen": "159"
+  },
+  {
+   "address": "0x484a87c73cb7d72e62a79cf785894396fb3ef8dd",
+   "axlRegen": "5000000"
+  },
+  {
+   "address": "0x00268b6a81c14ffac92740bee3875549f7c0902f",
+   "axlRegen": "75435025"
+  },
+  {
+   "address": "0x3d11c0814478d9624bd221a817ce3edd13d26689",
+   "axlRegen": "2600015"
+  },
+  {
+   "address": "0xba7b29270e8eee44e3d842ceec67c268d652a4a4",
+   "axlRegen": "55735"
+  },
+  {
+   "address": "0x08aaa30a8a9bb3320ec82bd254ae08211dc24152",
+   "axlRegen": "11779387"
+  },
+  {
+   "address": "0x33fee8ac358dff871d290c2ae441dddee9e777f3",
+   "axlRegen": "570394102"
+  },
+  {
+   "address": "0xe69b925d0fce7f8d3b41c1fda74c4f3fb4580fff",
+   "axlRegen": "185800000"
+  },
+  {
+   "address": "0xe9d60b744647802623763677fc2b254dfcd0440f",
+   "axlRegen": "174000000"
+  },
+  {
+   "address": "0x6ff1c5b0fe87bf10eee64e6bfd5a49af9e4f4fdc",
+   "axlRegen": "75710"
+  },
+  {
+   "address": "0x39ea1a9f8caa308ebb3f9da4829f1fff7b74b72c",
+   "axlRegen": "6405"
+  },
+  {
+   "address": "0x90cbe4bdd538d6e9b379bff5fe72c3d67a521de5",
+   "axlRegen": "4893890"
+  },
+  {
+   "address": "0x5d98f54d829708eeb2aa555badb96bcb5400def1",
+   "axlRegen": "55166771"
+  },
+  {
+   "address": "0x3cc827866896e49cee89df9e17659e9ed5058f35",
+   "axlRegen": "81176391"
+  },
+  {
+   "address": "0x00700052c0608f670705380a4900e0a8080010cc",
+   "axlRegen": "3615259"
+  },
+  {
+   "address": "0xab20ccdfcc34daac9b356bfa7b692bcb379af9cb",
+   "axlRegen": "228000000"
+  },
+  {
+   "address": "0x501302d26506f9af9b7c74490223a72a44558543",
+   "axlRegen": "188923184"
+  },
+  {
+   "address": "0x9a64e44168b87bc9389bd8f24294ccbccb1ad671",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x11ad72a99120621dd1bf0138f750e963c6167d82",
+   "axlRegen": "155000000"
+  },
+  {
+   "address": "0x1060a5142fd977379c709aa6da16bc8c7406ccb5",
+   "axlRegen": "3847890"
+  },
+  {
+   "address": "0x11270627509415ae622f9fd920a8fea503b9d0ed",
+   "axlRegen": "132900242"
+  },
+  {
+   "address": "0xf1c6e5f20f9186434a856163092f428614c93e2a",
+   "axlRegen": "156241498"
+  },
+  {
+   "address": "0x055cf32594783050dfaf1e092cfd0051f52f315e",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x3fb7c76679ec0e7c8105a95194e9cba4ce5f911e",
+   "axlRegen": "341062"
+  },
+  {
+   "address": "0x1ee7c6e3463ec2b3b102258adb0aca0bdc34c5da",
+   "axlRegen": "132006334"
+  },
+  {
+   "address": "0x6b6978e3626463ebb81403d677ea7c4abea7b535",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x01b4071c5edfbf46d20636cdff11da9882e1cb8d",
+   "axlRegen": "19889929"
+  },
+  {
+   "address": "0x2aa7d880b7ad5964c02b919074fb27a71a7ddd07",
+   "axlRegen": "60"
+  },
+  {
+   "address": "0x6d691fb41ca5f030422251bcb19944bd8d8cb094",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x8f10b468b06c6fd214b65f87778827f7d113f996",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x8652767d52054d2cd29343369b19ba357f46869d",
+   "axlRegen": "26272532"
+  },
+  {
+   "address": "0x59f88154be1d4f71ca18023c66e036e07925aafe",
+   "axlRegen": "75448694"
+  },
+  {
+   "address": "0x4e80ca5b843dabec9a40f689be04f18e0d3c60e6",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xe2a4a8b9d77080c57799a94ba8edeb2dd6e0ac10",
+   "axlRegen": "1000000"
+  },
+  {
+   "address": "0x8503432b0f510074c5effaed20c56b3d6c7b66e3",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x3304000131ab6ae477c9741fedcfb6aa93fc94ef",
+   "axlRegen": "29641348"
+  },
+  {
+   "address": "0xed3ae91b2bb22307c07438eeeba2500c18eabcfe",
+   "axlRegen": "78573"
+  },
+  {
+   "address": "0x9f22333ca6d0120e4974100615355a38c716138a",
+   "axlRegen": "89262907"
+  },
+  {
+   "address": "0x3ef5582028f481fed9407ff13272c134c6474dfa",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x4e48d4885871b4dd2ea91a2aed9390b8908fe525",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xec9aa0a6c2372131a0502aba6188269ab52cacb5",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xbba7d1503317baf879cd0ac3ba0179b88fcb6f81",
+   "axlRegen": "12801114"
+  },
+  {
+   "address": "0x0bb5b6cc756a0bb62c9eac0797ad9555e7296fde",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x3547071c9edbfaaf303142af8011a61e6b68b7f4",
+   "axlRegen": "36504"
+  },
+  {
+   "address": "0x12d0f29642ebf73ab1b636222fd3eb48eb9b4a03",
+   "axlRegen": "2803274"
+  },
+  {
+   "address": "0x26e86e822c1b2949c4d097a4e3a53a2c9a09bb70",
+   "axlRegen": "3257571"
+  },
+  {
+   "address": "0xe1dedd80324db71361c61734ed2efbf323052e51",
+   "axlRegen": "1997957"
+  },
+  {
+   "address": "0x1548600f1f56db8d97c14c423ca267f4162a4eda",
+   "axlRegen": "556789224"
+  },
+  {
+   "address": "0x21ae1898f73364688498c43edd16c9a43b86a534",
+   "axlRegen": "2"
+  },
+  {
+   "address": "0xc0269fc72c0138a3a551ccf07f0819adabaa8973",
+   "axlRegen": "14"
+  },
+  {
+   "address": "0x8a17a35a22ce8d7e2f6bd2d43c6f7383dbe5b285",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x7f6fbb4df147d85267e6090b5d07553ff0e916bf",
+   "axlRegen": "2"
+  },
+  {
+   "address": "0x1e2b7b3fe8509e5d29503ddaead249eeca45a6ed",
+   "axlRegen": "78303029"
+  },
+  {
+   "address": "0xe7dc29344d750e48e70d4003a1decbd065781c73",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xd7dfc7fe6c2b582b142dbc23ad172f735106b598",
+   "axlRegen": "66"
+  },
+  {
+   "address": "0x306fea3df17db1f407cf0e372114084d4521af2b",
+   "axlRegen": "35655517"
+  },
+  {
+   "address": "0x7781c31bc3ad281be6e7736f62dec0567587681f",
+   "axlRegen": "15643142"
+  },
+  {
+   "address": "0x78e0a685840cb2926fcc6ecf860b0f5f4d940b63",
+   "axlRegen": "32"
+  },
+  {
+   "address": "0x7999b5b447c66f56adf870b1d90139c2b7f491e8",
+   "axlRegen": "102328061"
+  },
+  {
+   "address": "0x2486901cd5bdbe63e54a1b9d4957ad3984dc567f",
+   "axlRegen": "2271046"
+  },
+  {
+   "address": "0xc842213f1c75bc98f4bd910eb6d185a318f6c9b1",
+   "axlRegen": "48990654"
+  },
+  {
+   "address": "0x3c0534f4ae54329ee89cd5eb453d8d6c3f349c2c",
+   "axlRegen": "48999627"
+  },
+  {
+   "address": "0x082738d007001080a00099a000004f3006152085",
+   "axlRegen": "2"
+  },
+  {
+   "address": "0xb5c5028032373c007855f0290d717346b938e5e1",
+   "axlRegen": "931084260"
+  },
+  {
+   "address": "0x535a1e8dd30f68b09dbf347491efe624cc11a3ac",
+   "axlRegen": "27997651"
+  },
+  {
+   "address": "0x4483934de91ae60a08b678f61fd8e789c3663ca6",
+   "axlRegen": "25670169"
+  },
+  {
+   "address": "0x5692193a40e908d94bddbc988356cd7f1679eab4",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xf6e492736bef767a8595bcb122a547a2417b9156",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x51a6d6fd3c9dc64ad81bb002db8910e62db59558",
+   "axlRegen": "71268268"
+  },
+  {
+   "address": "0xb7f2337971be14d086500c3da1e1d469ed4f6a7c",
+   "axlRegen": "400000"
+  },
+  {
+   "address": "0xc37e0e1fc73cf30378080c2df3904e26ba6229a1",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x20f6ee51340adeed01a59b0e65cb3703f3dc860c",
+   "axlRegen": "2928660"
+  },
+  {
+   "address": "0x20f0d8b8683a4393b7b93d004addb96059d88e9c",
+   "axlRegen": "11719345"
+  },
+  {
+   "address": "0x88be4e7086bb73eede6ed19446e27bb2de926aa3",
+   "axlRegen": "45486285"
+  },
+  {
+   "address": "0xc06ebbefd94032b85424d51906e2a335efae264b",
+   "axlRegen": "2500000"
+  },
+  {
+   "address": "0xe71e46a8dd85bb3818fbbdaf8179da50a12d7166",
+   "axlRegen": "6"
+  },
+  {
+   "address": "0x3bb4f64d49cb140d764fb01e3b0f8d185b34948b",
+   "axlRegen": "86030756"
+  },
+  {
+   "address": "0x401dacb7697a9c8dfbefc5fcc0102ca29aa007fd",
+   "axlRegen": "18698048"
+  },
+  {
+   "address": "0x845708c0abd8afce2b4d49354e8d7ca91aa9d05b",
+   "axlRegen": "161301952"
+  },
+  {
+   "address": "0xdb3037e06f50aa0ed70514cf59f7f8c0fe471b0e",
+   "axlRegen": "10012066"
+  },
+  {
+   "address": "0x20ce807b571c2aa4c1f8c73d3eee55f8d867eaec",
+   "axlRegen": "12789064"
+  },
+  {
+   "address": "0xd9ceb49205a7e34ea8f321189defc7463f339ba2",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0xc9fd41c64a460c33cbee8066b9170c69ef9a3be9",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x7cd2ce5e5c82956c743cbe6160f0e173c8d295cd",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x1111115af63bfbcc151e5753e2ea1a29c79d2f01",
+   "axlRegen": "8704116"
+  },
+  {
+   "address": "0xca5b3bbb368db39d223a9fa57a577f9a98a03638",
+   "axlRegen": "3669880"
+  },
+  {
+   "address": "0xc2e0f66ad6322aab458809698297790d8cdcc809",
+   "axlRegen": "81052128"
+  },
+  {
+   "address": "0x165f0afe0b884c454807f74167b6052d522900b8",
+   "axlRegen": "1"
+  },
+  {
+   "address": "0x7a71a545419a79e234464b7a241eaa87396ecfdc",
+   "axlRegen": "3126"
+  },
+  {
+   "address": "0x05212522e46c3ae5ed322c18b47c3c6e6c00def1",
+   "axlRegen": "14878170"
+  },
+  {
+   "address": "0x1111110f0f73c0b2ef09ec012eae758b3e03a902",
+   "axlRegen": "1872909"
+  },
+  {
+   "address": "0xbe7c06d0417e03fc27e2a28126fd76b97d1c9341",
+   "axlRegen": "2"
+  },
+  {
+   "address": "0xcb6f24f6beae33b161145503e998a93f3633892b",
+   "axlRegen": "60744920"
+  },
+  {
+   "address": "0x0000000000000000000000000000000000000001",
+   "axlRegen": "26287"
+  },
+  {
+   "address": "0xd7b36133ecfc79053b942750ed85a2dd99e70a39",
+   "axlRegen": "189741030"
+  }
+ ]
+}
