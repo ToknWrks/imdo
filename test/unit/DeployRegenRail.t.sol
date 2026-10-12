@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {DeployRegenRail} from "../../script/DeployRegenRail.s.sol";
+import {RegenReceiver, RegenReceiverFactory} from "../../src/regen/RegenReceiver.sol";
 import {MockUsdc, MockKvcm, MockPool, MockFeed, MockAggregator, MockCredit} from "./RegenRouter.t.sol";
 
 contract HasCode {}
@@ -39,6 +40,12 @@ contract DeployRegenRailTest is Test {
         feed = new MockFeed();
         address vault = address(new HasCode());
         agg = new MockAggregator(usdc, address(kvcm), pool, vault, 22e18);
+        address a = address(new MockCredit("A"));
+        address b = address(new MockCredit("B"));
+        address cc = address(new MockCredit("C"));
+        agg.setCredit(a, 1000e18);
+        agg.setCredit(b, 1000e18);
+        agg.setCredit(cc, 1000e18);
         c = DeployRegenRail.Config({
             chainId: block.chainid,
             deployer: address(script),
@@ -47,9 +54,9 @@ contract DeployRegenRailTest is Test {
             kvcm: address(kvcm),
             kvcmPool: address(pool),
             classVault: vault,
-            creditA: address(new MockCredit("A")),
-            creditB: address(new MockCredit("B")),
-            creditC: address(new MockCredit("C")),
+            creditA: a,
+            creditB: b,
+            creditC: cc,
             swapRouter02: address(new MockSwapRouter02()),
             weth: address(new HasCode()),
             v3Fee: 500,
@@ -127,6 +134,55 @@ contract DeployRegenRailTest is Test {
         vm.expectRevert(DeployRegenRail.InvalidConfiguration.selector);
         script.deploy(c);
         assertEq(vm.getNonce(address(script)), nonce);
+    }
+
+    /// @dev Round-3 info: the credit leg's reads all run inside try/catch in the router, so a rail deployed with a
+    ///      granularity the pool cannot answer, a nonsense fee or an unquotable credit would skip "priceOff" forever.
+    function test_preflightExercisesTheCreditLeg() public {
+        DeployRegenRail.Config memory c = _config();
+        uint64 nonce = vm.getNonce(address(script));
+        pool.setQuoteBroken(true); // the pool cannot quote at twapGranularity
+        vm.expectRevert(DeployRegenRail.InvalidConfiguration.selector);
+        script.deploy(c);
+        c = _config();
+        pool.aeroFactory().setFee(10_000);
+        vm.expectRevert(DeployRegenRail.InvalidConfiguration.selector);
+        script.deploy(c);
+        c = _config();
+        c.creditC = address(new MockCredit("unknown")); // the aggregator does not quote it
+        vm.expectRevert(DeployRegenRail.InvalidConfiguration.selector);
+        script.deploy(c);
+        c = _config();
+        vm.mockCall(
+            address(agg),
+            abi.encodeWithSelector(agg.quoteRetireCreditForInputTokenInViaKlima.selector),
+            abi.encode(uint256(0), uint256(0), uint256(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0))
+        );
+        vm.expectRevert(DeployRegenRail.InvalidConfiguration.selector);
+        script.deploy(c);
+        vm.clearMockedCalls();
+        assertEq(vm.getNonce(address(script)), nonce);
+    }
+
+    /// @dev Round-3 info: `factory.deploy(1)` is permissionless; a receiver landed by someone else between the
+    ///      factory's creation and the script's call is the same CREATE2 receiver, so the script takes it.
+    function test_aReceiverDeployedBySomeoneElseFirstIsTaken() public {
+        DeployRegenRail.Config memory c = _config();
+        uint64 nonce = vm.getNonce(address(script));
+        // registry, venue, router, factory: the factory is the script's fourth creation, the router its third
+        address router = vm.computeCreateAddress(address(script), nonce + 2);
+        address factory = vm.computeCreateAddress(address(script), nonce + 3);
+        bytes32 initHash = keccak256(abi.encodePacked(type(RegenReceiver).creationCode, abi.encode(router, uint256(1))));
+        address receiver = address(
+            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), factory, bytes32(uint256(1)), initHash))))
+        );
+        vm.etch(receiver, hex"600160005260206000f3"); // someone got there first (any code at the predicted address)
+        DeployRegenRail.Deployment memory d = script.deploy(c);
+        assertEq(address(d.factory), factory);
+        assertEq(d.factory.predict(1), receiver);
+        assertEq(d.receiver, receiver);
+        vm.expectRevert(abi.encodeWithSelector(RegenReceiverFactory.AlreadyDeployed.selector, receiver));
+        d.factory.deploy(1);
     }
 
     function test_aBadRegenAddressFailsTheWholeDeployment() public {

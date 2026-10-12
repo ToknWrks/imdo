@@ -110,7 +110,12 @@ contract RegenRouterHandler is Test {
         address d = depositors[who % 3];
         uint256 id = project % PROJECTS + 1;
         uint256 bal = router.balanceOf(id, d);
-        if (bal == 0) return;
+        uint256 carried = router.usdcOf(id, d);
+        if (bal == 0 && carried == 0) {
+            vm.expectRevert(RegenRouter.NothingToProcess.selector);
+            router.process(id, d);
+            return;
+        }
         if (clock < router.lastRetiredAt(id, d) + router.processInterval()) {
             vm.expectRevert(
                 abi.encodeWithSelector(
@@ -126,11 +131,12 @@ contract RegenRouterHandler is Test {
         uint256 usdcBefore = usdc.balanceOf(address(router));
         uint256 retiredBefore = router.totalRetired();
         uint256 venueBefore = address(venue).balance;
+        uint256 carryCap = router.maxBatch() * 2500e8 / 1e20;
         try router.process(id, d) {
-            if (router.balanceOf(id, d) == bal) {
+            if (router.totalRetired() == retiredBefore) {
                 ++skips; // Skipped: nothing moved
+                require(router.balanceOf(id, d) == bal, "skip moved eth");
                 require(usdc.balanceOf(address(router)) == usdcBefore, "skip moved usdc");
-                require(router.totalRetired() == retiredBefore, "skip retired");
                 return;
             }
             ++processed;
@@ -141,7 +147,12 @@ contract RegenRouterHandler is Test {
             retiredTonnes += router.totalRetired() - retiredBefore;
             // the oracle floor on the ETH leg held
             require(bought >= router.minUsdcOut(ethIn - bounty, 2500e8), "under the oracle floor");
+            // at most one maxBatch's worth of the remainder joined this batch
+            require(agg.lastSpent() <= bought + (carried < carryCap ? carried : carryCap), "carry over the cap");
+            if (ethIn == 0) require(bought == 0 && address(venue).balance == venueBefore, "carry-only batch swapped");
+            // the bounty is at most bountyBps of the batch; whatever was not paid out is the depositor's
             if (reject) require(router.balanceOf(id, d) == bal - ethIn + bounty, "forfeit not re-credited");
+            else require(router.balanceOf(id, d) >= bal - ethIn, "bounty over-paid");
         } catch (bytes memory err) {
             bytes4 sel = bytes4(err);
             // the router's own refusals, all of which leave state untouched

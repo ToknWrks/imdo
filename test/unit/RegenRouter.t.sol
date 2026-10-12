@@ -230,6 +230,8 @@ contract MockAggregator is IKlimaRetirementAggregator {
     mapping(address => bool) public supported;
     mapping(address => bool) public retireBroken;
     mapping(address => bool) public overPull;
+    /// @dev The live quoter caps a dollar-budget quote at the class's liquid tonnes; the mock's default is the bare curve.
+    bool public capAtVault;
     RetireDetails public last;
     address public lastCredit;
     uint256 public lastTonnes;
@@ -270,6 +272,10 @@ contract MockAggregator is IKlimaRetirementAggregator {
         overPull[c] = b;
     }
 
+    function setCapAtVault(bool b) external {
+        capAtVault = b;
+    }
+
     function quoteRetireCreditForInputTokenInViaKlima(
         address creditToken,
         uint256,
@@ -291,6 +297,10 @@ contract MockAggregator is IKlimaRetirementAggregator {
         if (!supported[creditToken]) revert TokenNotSupported();
         uint256 kvcmIn = inputToken == address(usdc) ? pool.getAmountOut(amount) : amount;
         tonnes = kvcmIn * 1e18 / kvcmPerTonne; // the curve, whatever the vault holds
+        if (capAtVault) {
+            uint256 have = MockCredit(creditToken).balanceOf(vault);
+            if (tonnes > have) tonnes = have;
+        }
         return (tonnes, amount, 0, d, u);
     }
 
@@ -660,10 +670,13 @@ contract RegenRouterTest is Test {
         agg.setCredit(creditA, 1000e18);
         router = new RegenRouter(_config(0.001 ether, 0.02 ether, 100, 9700));
         _deposit(0.01 ether);
+        vm.prank(keeper);
         router.process(1, depositor);
         assertEq(usdc.balanceOf(address(router)), 22);
         assertEq(router.usdcOf(1, depositor), 22);
         assertEq(agg.lastTonnes(), 1.076086e18);
+        assertEq(keeper.balance, 0.0001 ether); // rounding dust is not parking: the full bounty
+        assertEq(router.balanceOf(1, depositor), 0);
         _deposit(0.01 ether);
         _later();
         router.process(1, depositor);
@@ -712,7 +725,7 @@ contract RegenRouterTest is Test {
         pool.setSpot(0.965e18); // 3.5% under the fee-exclusive average, 0.5% under the fee-inclusive one
         router.process(1, depositor);
         assertEq(agg.retirements(), 1);
-        assertEq(router.referenceTonnes(creditA, 22e6), 0.97e18);
+        assertEq(router.referenceKvcm(22e6), 21.34e18);
         pool.aeroFactory().setFee(10_000); // nonsense: nothing passes, nothing spent
         _later();
         vm.expectEmit(true, true, false, true);
@@ -755,6 +768,15 @@ contract RegenRouterTest is Test {
         router.process(1, depositor);
         assertEq(agg.retirements(), 0);
         feed.set(2500e8, block.timestamp);
+        router.process(1, depositor);
+        assertEq(agg.retirements(), 1);
+    }
+
+    /// @dev Round-3 info: `abi.decode(ret, (address))` reverts on a word with dirty upper bits, which contradicted
+    ///      "a malformed answer means no clamp".
+    function test_anAggregatorWordWithDirtyUpperBitsIsNotAClamp() public {
+        vm.mockCall(address(feed), abi.encodeCall(IPriceFeed.aggregator, ()), abi.encode((uint256(1) << 160) | 0x1234));
+        _deposit(0.01 ether);
         router.process(1, depositor);
         assertEq(agg.retirements(), 1);
     }
@@ -874,12 +896,41 @@ contract RegenRouterTest is Test {
         assertEq(router.balanceOf(1, depositor), 0.01 ether);
     }
 
-    function test_referenceTonnesIsTheAverageLessTheFeeAtTheAggregatorsRate() public {
-        assertEq(router.referenceTonnes(creditA, 22e6), 0.997e18); // 30 bps off
+    function test_referenceKvcmIsTheAverageLessTheFee() public {
+        assertEq(router.referenceKvcm(22e6), 21.934e18); // 30 bps off
         pool.setTwap(2e18);
-        assertEq(router.referenceTonnes(creditA, 22e6), 1.994e18);
-        pool.setSpot(0.1e18); // the spot plays no part
-        assertEq(router.referenceTonnes(creditA, 22e6), 1.994e18);
+        assertEq(router.referenceKvcm(22e6), 43.868e18);
+        pool.setSpot(0.1e18); // the spot plays no part in the reference...
+        assertEq(router.referenceKvcm(22e6), 43.868e18);
+        assertEq(router.kvcmFor(creditA, 1e18), 22e18); // ...and none in the aggregator's kVCM per tonne
+    }
+
+    /// @dev Round-3 low: the live quoter caps a dollar-budget quote at the class's liquid tonnes, so with the bar
+    ///      compared in tonnes a class under one batch compared L with L and a same-transaction pump went through
+    ///      up to the ceiling. Compared in kVCM, neither side is capped.
+    function test_theBarHoldsWhenTheClassIsUnderOneBatch() public {
+        agg.setCapAtVault(true);
+        agg.setCredit(creditA, 2e18);
+        agg.setCredit(creditB, 0);
+        agg.setCredit(creditC, 0);
+        pool.setSpot(0.5e18); // pumped in this transaction: 44 USDC per tonne, under the 45 ceiling; average unmoved
+        RegenRouter.Plan memory p = router.plan(121e6);
+        assertEq(p.credit, address(0), "the plan accepted a 2x same-tx pump with no hold");
+        assertEq(p.reason, bytes32("priceOff"));
+        agg.setCredit(creditA, 1000e18); // the control: a deep class was always refused
+        p = router.plan(121e6);
+        assertEq(p.reason, bytes32("priceOff"));
+        // and through process(): the last tonne of the class, refused while pumped, retired once the pool is back
+        agg.setCredit(creditA, 1e18);
+        _deposit(0.05 ether);
+        vm.expectEmit(true, true, false, true);
+        emit RegenRouter.Skipped(1, depositor, "priceOff");
+        router.process(1, depositor);
+        pool.setSpot(1e18);
+        router.process(1, depositor);
+        assertEq(agg.lastTonnes(), 1e18);
+        assertEq(agg.lastSpent(), 22e6);
+        assertEq(router.usdcOf(1, depositor), 49.5e6 - 22e6);
     }
 
     // ---- the project's own dollars ---------------------------------------------------------------------------------
@@ -889,13 +940,21 @@ contract RegenRouterTest is Test {
         address other = makeAddr("other-depositor");
         vm.deal(other, 1 ether);
         agg.setCredit(creditA, 0.5e18); // the vault holds 0.5 t of credit A; the quote still says 1.125 t
+        agg.setCredit(creditB, 0);
+        agg.setCredit(creditC, 0);
         _deposit(0.01 ether);
+        vm.prank(keeper);
         router.process(1, depositor);
         assertEq(agg.lastCredit(), creditA);
         assertEq(agg.lastTonnes(), 0.5e18);
         assertEq(agg.supply(creditA), 0);
         assertEq(router.usdcOf(1, depositor), 24.75e6 - 11e6);
+        // the bounty is for the 11 USDC retired out of the 24.75 bought; the rest of it stays with the depositor
+        assertEq(keeper.balance, uint256(0.0001 ether) * 11e6 / 24_750_000);
+        assertEq(router.balanceOf(1, depositor), 0.0001 ether - uint256(0.0001 ether) * 11e6 / 24_750_000);
+        uint256 unpaid = router.balanceOf(1, depositor);
         // another project's batch retires only its own dollars
+        agg.setCredit(creditB, 1000e18);
         vm.prank(other);
         router.deposit{value: 0.01 ether}(2);
         router.process(2, other);
@@ -918,25 +977,143 @@ contract RegenRouterTest is Test {
         _later();
         router.process(1, depositor);
         assertEq(agg.lastCredit(), creditB);
-        assertEq(agg.lastTonnes(), 1.75e18); // (13.75 + 24.75) / 22
-        assertEq(router.usdcOf(1, depositor), 0);
-        assertEq(router.retiredOf(1), 2.25e18);
-        assertEq(usdc.balanceOf(address(router)), 0);
+        // (13.75 + 99% of (0.01 ETH + the unpaid bounty) at 2500) / 22
+        uint256 ethIn = 0.01 ether + unpaid;
+        uint256 bought = (ethIn - ethIn / 100) * 2500e6 / 1e18;
+        assertEq(agg.lastTonnes(), (13.75e6 + bought) * 1e18 / 22e6 / 1e12 * 1e12);
+        assertLt(router.usdcOf(1, depositor), 23);
+        assertEq(router.retiredOf(1), 0.5e18 + agg.lastTonnes());
+        assertEq(usdc.balanceOf(address(router)), router.usdcOf(1, depositor));
     }
 
     function test_aRemainderAloneCanBeRetiredWithTheNextSlice() public {
         agg.setCredit(creditA, 0.5e18);
         agg.setCredit(creditB, 0);
         agg.setCredit(creditC, 0);
-        _deposit(0.01 ether);
+        _deposit(0.0099 ether); // 1% held back as bounty → 0.009801 ETH swapped = 24.5025 USDC
         router.process(1, depositor);
-        assertEq(router.usdcOf(1, depositor), 13.75e6);
+        assertEq(router.usdcOf(1, depositor), 24.5025e6 - 11e6);
+        uint256 unpaid = router.balanceOf(1, depositor); // the pro-rata bounty's unpaid part
         agg.setCredit(creditB, 1000e18);
         _deposit(0.0001 ether); // a sliver of ETH is enough to carry the remainder into a retirement
         _later();
         router.process(1, depositor);
         assertLt(router.usdcOf(1, depositor), 23); // rounding only
-        assertEq(agg.lastTonnes(), 0.636363e18); // (13.75 + 0.25) / 22, floored
+        uint256 bought = (0.0001 ether + unpaid) * 2500e6 / 1e18; // under minBatch: no bounty held back
+        assertEq(agg.lastTonnes(), (13.5025e6 + bought) * 1e18 / 22e6 / 1e12 * 1e12);
+    }
+
+    /// @dev Round-3 low: a depositor whose ETH is gone could never spend its dollar remainder (`NothingToProcess`
+    ///      came before `usdcOf`). Now the remainder alone is a batch: no swap, no bounty, the interval still applies.
+    function test_aRemainderIsRetiredWhenTheEthIsGone() public {
+        agg.setCredit(creditA, 0.05e18);
+        agg.setCredit(creditB, 0);
+        agg.setCredit(creditC, 0);
+        _deposit(0.0009 ether); // under minBatch: no bounty, so nothing comes back to the ETH balance
+        router.process(1, depositor);
+        assertEq(agg.lastTonnes(), 0.05e18);
+        assertEq(router.balanceOf(1, depositor), 0);
+        assertEq(router.usdcOf(1, depositor), 2.25e6 - 1.1e6);
+        agg.setCredit(creditB, 1000e18);
+        vm.expectRevert(abi.encodeWithSelector(RegenRouter.TooSoon.selector, block.timestamp + INTERVAL));
+        router.process(1, depositor);
+        _later();
+        uint256 venueBefore = address(venue).balance;
+        vm.prank(keeper);
+        vm.expectEmit(true, true, true, true);
+        emit RegenRouter.Processed(1, depositor, keeper, creditB, 0, 0, 0, 1.149984e6, 0.052272e18);
+        router.process(1, depositor);
+        assertEq(agg.lastCredit(), creditB);
+        assertEq(agg.lastTonnes(), 0.052272e18); // 1.15 / 22, floored
+        assertEq(address(venue).balance, venueBefore); // nothing swapped
+        assertEq(keeper.balance, 0);
+        assertLt(router.usdcOf(1, depositor), 23);
+        assertEq(usdc.balanceOf(address(router)), router.usdcOf(1, depositor));
+        // and with neither ETH nor dollars, there is nothing to process
+        vm.expectRevert(RegenRouter.NothingToProcess.selector);
+        router.process(1, makeAddr("nobody"));
+    }
+
+    /// @dev Round-3 medium: first-fit let a sliver of credit A in the vault capture a whole batch (a micro-tonne
+    ///      retired, the full bounty paid, the slot spent, ~all the dollars parked). The best offer is taken instead.
+    function test_aSliverOfTheFirstCreditDoesNotCaptureTheBatch() public {
+        agg.setCredit(creditA, 1e12); // one step of a tonne
+        _deposit(0.01 ether);
+        vm.prank(keeper);
+        router.process(1, depositor);
+        assertEq(agg.lastCredit(), creditB);
+        assertEq(agg.lastTonnes(), 1.125e18);
+        assertEq(router.usdcOf(1, depositor), 0);
+        assertEq(keeper.balance, 0.0001 ether);
+        // the view agrees
+        RegenRouter.Plan memory p = router.plan(24.75e6);
+        assertEq(p.credit, creditB);
+        // two partial offers: the one that spends more wins, whatever the order
+        agg.setCredit(creditA, 0.3e18);
+        agg.setCredit(creditB, 0.5e18);
+        agg.setCredit(creditC, 0);
+        p = router.plan(24.75e6);
+        assertEq(p.credit, creditB);
+        assertEq(p.spend, 11e6);
+        agg.setCredit(creditA, 0.5e18);
+        p = router.plan(24.75e6); // a tie goes to the fixed order
+        assertEq(p.credit, creditA);
+    }
+
+    /// @dev Round-3 medium, second half: dollars parked over several intervals cannot all be priced in one batch.
+    ///      At most one maxBatch's worth of the remainder (at the oracle) joins a batch.
+    function test_atMostOneBatchOfCarryIsSpentPerBatch() public {
+        agg.setCredit(creditB, 0);
+        agg.setCredit(creditC, 0);
+        _deposit(0.1 ether);
+        for (uint256 i; i < 3; ++i) {
+            agg.setCredit(creditA, 1e12); // a sliver per interval: every batch parks ~49.5 USDC
+            if (i != 0) _later();
+            router.process(1, depositor);
+            assertEq(agg.lastTonnes(), 1e12);
+        }
+        uint256 carried = router.usdcOf(1, depositor);
+        assertGt(carried, 148e6);
+        uint256 ethLeft = router.balanceOf(1, depositor);
+        assertGt(ethLeft, 0.04 ether); // 0.1 − 3 × 0.02, plus the unpaid bounties
+        // the pool is now held at 44 USDC per tonne, under the ceiling, for the whole window
+        pool.setSpot(0.5e18);
+        pool.setTwap(0.5e18);
+        agg.setCredit(creditB, 1000e18);
+        _later();
+        router.process(1, depositor);
+        uint256 bought = agg.lastSpent() - (carried - router.usdcOf(1, depositor));
+        uint256 cap = 0.02 ether * 2500e8 / 1e20; // one maxBatch's worth: 50 USDC
+        assertLe(carried - router.usdcOf(1, depositor), cap, "more than one maxBatch of carry priced in one batch");
+        assertLe(agg.lastSpent(), bought + cap);
+        assertGt(router.usdcOf(1, depositor), 98e6); // the rest waits for later intervals
+        // with the ETH gone, the remainder still drains one maxBatch's worth per interval
+        while (router.balanceOf(1, depositor) != 0) {
+            _later();
+            router.process(1, depositor);
+        }
+        uint256 before = router.usdcOf(1, depositor);
+        _later();
+        router.process(1, depositor);
+        assertLe(before - router.usdcOf(1, depositor), cap);
+    }
+
+    /// @dev Round-3 low: one credit whose `balanceOf` reverts halted every batch of every project. It counts as
+    ///      empty for that credit now; the others are still tried.
+    function test_aCreditWhoseBalanceReadRevertsIsPassedOver() public {
+        _deposit(0.01 ether);
+        vm.mockCallRevert(creditA, abi.encodeCall(IERC20.balanceOf, (vault)), "paused");
+        router.process(1, depositor);
+        assertEq(agg.lastCredit(), creditB);
+        assertEq(agg.lastTonnes(), 1.125e18);
+        vm.clearMockedCalls();
+        // a malformed answer is the same as a revert
+        _deposit(0.01 ether);
+        _later();
+        vm.mockCall(creditA, abi.encodeCall(IERC20.balanceOf, (vault)), abi.encode(uint256(1), uint256(2)));
+        router.process(1, depositor);
+        assertEq(agg.lastCredit(), creditB);
+        vm.clearMockedCalls();
     }
 
     function test_donatedUsdcBelongsToNobody() public {

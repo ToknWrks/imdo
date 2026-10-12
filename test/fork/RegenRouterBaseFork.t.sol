@@ -134,11 +134,14 @@ contract RegenRouterBaseForkTest is Test {
         assertEq(p.credit, C004);
         vm.prank(keeper);
         router.process(1, pot);
-        uint256 bar = router.referenceTonnes(C004, p.spend);
+        uint256 ref = router.referenceKvcm(p.spend); // kVCM the spend buys at the day's average
+        uint256 need = router.kvcmFor(C004, p.tonnes); // kVCM the aggregator needed at spot
         emit log_named_uint("retired (1e18)", router.retiredOf(1));
-        emit log_named_uint("bar (1e18)", bar);
+        emit log_named_uint("kVCM needed at spot (1e18)", need);
+        emit log_named_uint("kVCM at the average (1e18)", ref);
         emit log_named_uint("usdc per tonne", p.spend * 1e18 / p.tonnes);
-        assertGe(router.retiredOf(1), bar * 9500 / 10_000);
+        assertGt(router.retiredOf(1), 0);
+        assertGe(need, ref * 9500 / 10_000);
         assertLe(p.spend * 1e18 / p.tonnes, 45e6);
     }
 
@@ -182,11 +185,13 @@ contract RegenRouterBaseForkTest is Test {
             IKlimaRetirementAggregator(AGG).quoteRetireCreditForInputTokenInViaKlima(C004, 0, 125e6, USDC, VAULT, 0);
         tonnes = tonnes / 1e12 * 1e12;
         (, uint256 spend,,) = IKlimaRetirementAggregator(AGG).quoteRetireCreditViaKlima(C004, 0, tonnes, USDC, VAULT, 0);
-        uint256 bar = router.referenceTonnes(C004, spend);
+        uint256 ref = router.referenceKvcm(spend);
+        uint256 need = router.kvcmFor(C004, tonnes);
         emit log_named_uint("usdc per tonne after the hold", spend * 1e18 / tonnes);
         emit log_named_uint("tonnes offered (1e18)", tonnes);
-        emit log_named_uint("bar after the hold (1e18)", bar);
-        assertGe(tonnes, bar * 9500 / 10_000, "the relative bar alone would have let it through");
+        emit log_named_uint("kVCM needed at spot (1e18)", need);
+        emit log_named_uint("kVCM at the held average (1e18)", ref);
+        assertGe(need, ref * 9500 / 10_000, "the relative bar alone would have let it through");
         // ...and the ceiling is what refuses it; the feed is a day old by now, so the refusal is read off the plan
         assertGt(spend * 1e18 / tonnes, 45e6);
         RegenRouter.Plan memory p = router.plan(125e6);

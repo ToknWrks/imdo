@@ -15,9 +15,13 @@ interface ISwapRouter02Factory {
 interface IUniswapV3Factory {
     function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address);
 }
-import {IKlimaRetirementAggregator} from "../src/regen/interfaces/IKlimaRetirementAggregator.sol";
+import {
+    IKlimaRetirementAggregator,
+    DiscountedForwardBalanceContext,
+    UpdateLiquidSupplyRateLimiterParams
+} from "../src/regen/interfaces/IKlimaRetirementAggregator.sol";
 import {IEthToTokenSwap, IPriceFeed} from "../src/regen/interfaces/IEthToTokenSwap.sol";
-import {IAerodromePool} from "../src/regen/interfaces/IAerodromePool.sol";
+import {IAerodromePool, IAerodromeFactory} from "../src/regen/interfaces/IAerodromePool.sol";
 
 /// @notice The Regen rail on Base, in one broadcast and in this order: registry WITH the first project (registered by
 ///         the registry's constructor, in its creation transaction, so nobody can take the name or the id first),
@@ -107,9 +111,11 @@ contract DeployRegenRail is Script {
         if (d.registry.count() != 1 || d.registry.project(1).beneficiary != c.beneficiary) {
             revert InvalidConfiguration();
         }
+        // deploy(1) is permissionless and the receiver is CREATE2 with fixed init code: one landed by someone else
+        // between the factory's creation and this call is the same receiver, so take it instead of reverting.
         address predicted = d.factory.predict(d.projectId);
-        d.receiver = d.factory.deploy(d.projectId);
-        if (d.receiver != predicted) revert InvalidConfiguration();
+        d.receiver = predicted.code.length != 0 ? predicted : d.factory.deploy(d.projectId);
+        if (d.receiver != predicted || d.receiver.code.length == 0) revert InvalidConfiguration();
     }
 
     function preflight(Config memory c) public view {
@@ -131,8 +137,43 @@ contract DeployRegenRail is Script {
         // The ETH leg's pool must exist at this fee tier: an ownerless router whose swap always reverts has no exit.
         address v3Factory = ISwapRouter02Factory(c.swapRouter02).factory();
         if (IUniswapV3Factory(v3Factory).getPool(c.weth, c.usdc, c.v3Fee) == address(0)) revert InvalidConfiguration();
-        address t0 = IAerodromePool(c.kvcmPool).token0();
-        address t1 = IAerodromePool(c.kvcmPool).token1();
+        IAerodromePool pool = IAerodromePool(c.kvcmPool);
+        address t0 = pool.token0();
+        address t1 = pool.token1();
         if (!((t0 == c.usdc && t1 == c.kvcm) || (t0 == c.kvcm && t1 == c.usdc))) revert InvalidConfiguration();
+        // The credit leg has the same property as the ETH leg (no exit), and every one of its reads runs inside a
+        // try/catch in the router: a misconfigured rail would deploy and skip "priceOff" forever. Exercise them here.
+        if (!_creditLegAnswers(c, pool)) revert InvalidConfiguration();
+    }
+
+    /// @dev The pool quotes at `twapGranularity` (it reverts past its observation count), the factory's fee for the
+    ///      pool is under 100%, and the aggregator quotes a non-zero amount of every credit for one dollar.
+    function _creditLegAnswers(Config memory c, IAerodromePool pool) private view returns (bool) {
+        try pool.quote(c.usdc, 1e6, c.twapGranularity) returns (uint256 kvcmOut) {
+            if (kvcmOut == 0) return false;
+        } catch {
+            return false;
+        }
+        try IAerodromeFactory(pool.factory()).getFee(c.kvcmPool, pool.stable()) returns (uint256 fee) {
+            if (fee >= 10_000) return false;
+        } catch {
+            return false;
+        }
+        address[3] memory credits = [c.creditA, c.creditB, c.creditC];
+        for (uint256 i; i < 3; ++i) {
+            try IKlimaRetirementAggregator(c.aggregator)
+                .quoteRetireCreditForInputTokenInViaKlima(credits[i], 0, 1e6, c.usdc, c.classVault, 0) returns (
+                uint256 tonnes,
+                uint256,
+                uint256,
+                DiscountedForwardBalanceContext memory,
+                UpdateLiquidSupplyRateLimiterParams memory
+            ) {
+                if (tonnes == 0) return false;
+            } catch {
+                return false;
+            }
+        }
+        return true;
     }
 }

@@ -13,8 +13,11 @@ bridged wei to whoever registers that id first.
 1. **Base: `script/DeployRegenRail.s.sol`**, one broadcast: `RegenRegistry` WITH the first project (the registry's
    constructor registers `projectName / regenAddress / beneficiary` as id 1 in its own creation transaction, so no
    registration can land in between), `UniswapV3Venue`, `RegenRouter`, `RegenReceiverFactory`, then `deploy(1)` for the
-   project's receiver (checked against `predict(1)`). Preflight also checks a WETH/USDC V3 pool exists at `v3Fee`.
-   Record the receiver address.
+   project's receiver (checked against `predict(1)`; a receiver someone else already landed at that address is the
+   same CREATE2 receiver and is taken instead of reverting). Preflight checks a WETH/USDC V3 pool exists at `v3Fee`
+   AND exercises the credit leg (the pool quotes at `twapGranularity`, the factory fee is under 100%, the aggregator
+   quotes every credit): every one of those reads runs inside a try/catch in the router, so a misconfigured rail would
+   otherwise deploy and skip "priceOff" forever. Record the receiver address.
 2. **Ethereum: `script/DeployImdo.s.sol`** with `offsetsSafe = 0`, `receiverOnBase = <that receiver>`,
    `l1Bridge = 0x3154Cf16ccdb4C6d922629664174b904d80F2C35`, `minGasLimit = 200000`. The script predicts the
    `OffsetsForwarder` address from the deployer's next nonce, creates the treasury with it as `offsetsSafe`, creates the
@@ -43,37 +46,45 @@ is part of the deploy, not optional.
 | `ethUsd` / `maxFeedAge` | `0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70` / 3600 | Chainlink ETH/USD, 8 dec; an answer on the aggregator's min/max clamp counts as stale (on Base the clamp is 1 .. 2^176, so it never binds today) |
 | `sequencerUptime` | `0xBCF85224fc0756B9Fa45aA7892530B47e10b6433` | Chainlink L2 sequencer uptime feed; a batch skips while the sequencer is down and for one hour after it returns (`SEQUENCER_GRACE`) |
 | `minBatch` / `maxBatch` | 0.001 / 0.05 ETH | a batch is ~1% of the kVCM pool; remainders under `minBatch` still process, with no bounty |
-| `bountyBps` | 50 | a `process()` costs ~4M gas on Base (up to ~14M when every credit is tried and fails); below ~0.01 ETH a third party's gas exceeds the bounty, so small balances rely on the project's own keeper (or anyone) processing them |
+| `bountyBps` | 50 | paid pro rata to the dollars retired out of the dollars the batch bought (a batch that mostly parks dollars because every class vault is nearly empty pays mostly nothing; sub-step rounding pays in full), so a mover is not paid for capturing slots. A `process()` quotes all three credits before and after the swap (~5M gas on Base; up to ~14M when every retirement reverts); below ~0.01 ETH a third party's gas exceeds the bounty, so small balances rely on the project's own keeper (or anyone) processing them |
 | `minOutBps` | 9700 | ETH→USDC held to 97% of Chainlink |
-| `twapGranularity` / `minTonnesBps` | 48 / 9500 | the RELATIVE bar: the dollars the aggregator takes must buy at least 95% of the tonnes they would at the pool's 48-completed-interval (≥ 24 h) time-weighted price, pool fee taken off. 24 h because a price HELD across the whole window becomes the average (observations are written on any state change and `sync()` is public and free: round-2 audit, proven on the fork with a 2 h window). A day-long hold ties the mover's capital in a token whose only venue is this pool. 95% because a thin pool drifts: on 2026-10-12 the spot was 2.7% under the day's average at one block and 9.1% under at another (the honest batch skips there and waits) |
+| `twapGranularity` / `minTonnesBps` | 48 / 9500 | the RELATIVE bar, compared in kVCM: the kVCM the aggregator needs for the offered tonnes (what the dollars buy at SPOT) must be at least 95% of the kVCM those dollars buy at the pool's 48-completed-interval (≥ 24 h) time-weighted price, pool fee taken off. In kVCM and not in tonnes because the live quoter caps a dollar-budget quote at the class's liquid tonnes: compared in tonnes, a class under one batch compared L with L and a same-transaction pump went through up to the ceiling (round-3 review). 24 h because a price HELD across the whole window becomes the average (observations are written on any state change and `sync()` is public and free: round-2 audit, proven on the fork with a 2 h window). A day-long hold ties the mover's capital in a token whose only venue is this pool. 95% because a thin pool drifts: on 2026-10-12 the spot was 2.7% under the day's average at one block and 9.1% under at another (the honest batch skips there and waits) |
 | `maxUsdcPerTonne` | 45 USDC/t | the ABSOLUTE bar: never pay more than this per tonne, whatever the pool says. ~2.1× the $21.4/t market of 2026-10-12. This is what bounds a batch's loss against a held pump; immutable, so if credits ever cost more than this organically the rail halts (ETH waits) until a new rail is deployed. Christian to confirm the number |
-| `processInterval` | 7200 s | one retirement per (project, depositor) per 2 h: a held pump pays for at most 12 batches per depositor per day, whatever is pending |
+| `processInterval` | 7200 s | one retirement per (project, depositor) per 2 h: a held pump pays for at most 12 batches per depositor per day, whatever is pending. The same cap bounds the project's own throughput: the bridge receiver is ONE depositor, so at most `(24h / processInterval) × maxBatch` = 0.6 ETH a day of the Offsets leg is retired; above ~2.4 ETH/day of net treasury fees the receiver's balance grows as a backlog (nothing is lost; it waits, unhedged). A deliberate trade; resize `maxBatch` or `processInterval` if the leg outgrows it |
 
 **What a mover can still take, in numbers.** Hold the pool off its average for a full day (capital in the pool, fees
 on the way in and out, every kVCM seller sells into you), keep the price under the ceiling, and each of the project's
 depositors loses at most `(24h / processInterval) × maxBatch × (1 − market / maxUsdcPerTonne)` a day: at the values
 above 12 × ~$125 × (1 − 21.4 / 45) ≈ $790 per depositor per day, for about $15k of capital at risk for that day.
-Tighten `maxUsdcPerTonne` or lengthen `processInterval` to shrink it; both also raise the odds of honest skips or a
-halt. There is no oracle for kVCM; this is the trade.
+A depositor carrying parked dollars (`usdcOf`) can lose up to twice that, because at most one `maxBatch`'s worth of
+the remainder joins a batch; parking itself needs every class vault near empty (the router takes the credit that
+spends the most of the batch, so a sliver of one credit no longer captures a batch: round-3 review). Tighten
+`maxUsdcPerTonne` or lengthen `processInterval` to shrink it; both also raise the odds of honest skips or a halt.
+There is no oracle for kVCM; this is the trade.
 
 ## What `process()` refuses and what it emits
 
 - `Skipped("feedStale")`: Chainlink older than `maxFeedAge`, zero, negative, dated in the future, or on the
   aggregator's clamp; or the sequencer down / back for under an hour. ETH kept.
+- `NothingToProcess` (revert): this (project, depositor) has neither ETH nor a dollar remainder. A depositor whose
+  ETH is gone but whose remainder is not is processed on the remainder alone: no swap, no bounty, the interval applies.
 - `TooSoon(nextAt)` (revert): this (project, depositor) retired less than `processInterval` ago. A skip does not start
   the clock.
 - `Skipped("classEmpty")`: no credit token quotes a step of a tonne for the batch's dollars, or every vault is empty of
   its credit (the aggregator quotes its curve regardless of the vault; the router caps the offer at what the vault
-  holds, so a near-empty class drains to zero instead of reverting). ETH kept.
+  holds, so a near-empty class drains to zero instead of reverting; a credit whose `balanceOf` reverts counts as
+  empty for that credit only). ETH kept.
 - `Skipped("priceOff")`: a credit quotes, but over `maxUsdcPerTonne`, or under `minTonnesBps` of the time-weighted
   reference, or the pool's quote or fee read reverts. ETH kept, nothing swapped, no bounty.
 - `SwapShort` (revert): the V3 pool paid under 97% of the oracle value.
 - `NothingRetired` (revert): the plan passed before the swap, but after it no credit retires (the pool moved during
   the ETH leg, every retirement reverted, or the aggregator asked for more than the planned spend plus 0.1% + 100
   micro-USDC). The revert undoes the swap; ETH stays credited.
-- `Processed(...)`: one retirement. `usdcSpent` may be below `usdcBought`: the difference is THAT DEPOSITOR'S
-  remainder (`usdcOf[project][depositor]`), spent on its next batch; a 1-wei depositor cannot retire someone else's
-  dollars under its own `src`.
+- `Processed(...)`: one retirement, from the credit whose offer spends the most of the batch (fixed order breaks a
+  tie). `usdcSpent` may be below `usdcBought`: the difference is THAT DEPOSITOR'S remainder (`usdcOf[project]
+  [depositor]`), spent on its next batches, at most one `maxBatch`'s worth per batch; a 1-wei depositor cannot retire
+  someone else's dollars under its own `src`. `bounty` is what the caller was paid: pro rata to `usdcSpent` out of
+  `usdcBought`, the rest re-credited to the depositor's ETH.
 
 ## Trust that remains
 
@@ -87,7 +98,8 @@ halt. There is no oracle for kVCM; this is the trade.
   numbers above). The pool's fee is read from Aerodrome's factory and taken off the reference; a fee at or above 100%
   is refused.
 - **Klima's quotes.** The aggregator's views are trusted to return well-formed data (a malformed answer reverts the
-  call rather than skipping; the ETH/USD clamp read is the exception, done with raw static calls). A retirement that
+  call rather than skipping; the ETH/USD clamp read and the credit tokens' vault balances are the exceptions, done
+  with raw static calls so that one broken answer means "no clamp" / "this credit is empty", never a halt). A retirement that
   burns all the gas it is handed ends the call without trying the next credit; the caller can retry with more gas.
 - **Chainlink on Base.** The sequencer uptime feed and the aggregator clamp are consulted; round completeness is not
   (OCR feeds no longer need it). The 97% floor and the 0.05 ETH cap bound what a wrong answer could cost.
@@ -109,12 +121,16 @@ halt. There is no oracle for kVCM; this is the trade.
 ## Tests
 
 - `forge test`: unit tests with a pool-priced aggregator stand-in (sandwich skipped before anything is spent, plan vs
-  retirement divergence reverts, retirement reverts fall through, partial absorption stays with the project, rounding
-  slack, remainders, bech32, name keys, forwarder bounds, both deploy scripts).
+  retirement divergence reverts, retirement reverts fall through, partial absorption stays with the depositor, a
+  sliver of the first credit does not capture the batch, at most one batch of carry per batch, the remainder retired
+  once the ETH is gone, a reverting `balanceOf` passed over, the bar in kVCM against a liquid-supply-capped quoter,
+  pro-rata bounty, rounding slack, remainders, bech32, name keys, forwarder bounds, both deploy scripts including the
+  credit-leg preflight and a front-run receiver).
 - `forge test --match-path "test/invariant/RegenRouter*"`: a handler drives deposits, batches, pool spot and average
   moves, fill changes, credit supply, retirement reverts, feed staleness and keepers that cannot take ETH; invariants:
-  ETH conserved and equal to the sum of balances, USDC conserved and fully attributed to projects, tonnes counted once
-  in whole steps, no standing allowance.
+  ETH conserved and equal to the sum of balances, USDC conserved and fully attributed to depositors, tonnes counted
+  once in whole steps, no standing allowance, carry spent per batch under the cap, carry-only batches swap nothing,
+  bounty never over `bountyBps`.
 - `FOUNDRY_PROFILE=fork forge test` (`BASE_RPC_URL` / `ETH_RPC_URL` optional; Base blocks 52,335,751 and 52,487,479):
   a real retirement through the real aggregator, a full batch against the real 24 h bar, a block where the honest
   batch is a skip, an 8,000 USDC pump answered with `Skipped("priceOff")`, the same pump HELD for 25 hours with

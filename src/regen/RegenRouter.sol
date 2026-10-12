@@ -24,47 +24,62 @@ import {IRegenRouterDeposit} from "./RegenReceiver.sol";
 ///      money came from (`src:8453:<depositor>`): the project's bridge receiver for a leg forwarded from Ethereum, a
 ///      Safe for a direct deposit. One `process(projectId, depositor)`:
 ///        1. refuse (TooSoon) within `processInterval` of that depositor's last retirement; take min(balance,
-///           maxBatch). A batch of at least `minBatch` pays the caller `bountyBps`; a smaller remainder (what is left
-///           after the last full batch, or a forfeited bounty) is processed with no bounty, so nothing is stranded;
+///           maxBatch). A batch of at least `minBatch` pays the caller up to `bountyBps`; a smaller remainder (what is
+///           left after the last full batch, or a forfeited bounty) is processed with no bounty. A depositor whose ETH
+///           is gone but whose dollar remainder (step 6) is not is processed on the remainder alone (no swap, no
+///           bounty), so nothing is stranded;
 ///        2. read Chainlink ETH/USD; stale, dated in the future, on the aggregator's min/max clamp, or the L2 sequencer
 ///           down or back for under an hour → emit `Skipped("feedStale")`, keep the ETH;
-///        3. plan the retirement before spending anything: for each credit token in fixed order, ask the aggregator
-///           what the batch's dollars (at least `minOutBps` of the oracle value, plus the depositor's remainder) would
-///           retire, capped at what the class vault holds of that credit, and hold the offer to the two bars in step 5.
-///           No credit plans → `Skipped("classEmpty")` or `Skipped("priceOff")`, ETH kept;
+///        3. plan the retirement before spending anything: for EVERY credit token, ask the aggregator what the batch's
+///           dollars (at least `minOutBps` of the oracle value, plus the depositor's remainder, of which at most one
+///           `maxBatch`'s worth at the oracle is spent per batch) would retire, capped at what the class vault holds of
+///           that credit, hold the offer to the two bars in step 5, and take the offer that spends the MOST of those
+///           dollars (fixed order breaks a tie). First-fit would let a sliver of the first credit in the vault capture a
+///           whole batch: retire a micro-tonne, pay the bounty, spend the interval slot and park the dollars. No credit
+///           plans → `Skipped("classEmpty")` or `Skipped("priceOff")`, ETH kept;
 ///        4. swap the batch minus the bounty ETH → USDC. The caller supplies NO minimum: the router requires at least
 ///           `minOutBps` of what Chainlink says the batch is worth. The reference is an oracle, not a pool, so a
 ///           sandwich on the ETH/USDC pool cannot lower the bar and can take at most (10000 − minOutBps) of a batch;
-///        5. plan again with the dollars actually in hand and retire from the first credit that plans and retires; a
-///           credit whose retirement reverts is passed over. Paying USDC, the aggregator buys kVCM at the SPOT reserves
-///           of one small Aerodrome pool, which the caller of this very function could move in the same transaction.
-///           Two bars, both on the dollars the aggregator will take for the tonnes it offers:
-///             (a) a RELATIVE bar: at least `minTonnesBps` of what those dollars buy at the pool's time-weighted price
-///                 (`twapGranularity` completed observation intervals, each at least 30 minutes, the pool fee taken
-///                 off) converted at the aggregator's own kVCM-per-tonne rate. A price set inside a transaction never
-///                 reaches it. A price HELD for the whole window does: the pool writes an observation on any state
-///                 change and `sync()` is public, so after `twapGranularity` intervals the average IS the held price.
-///                 That is why the window is long (a day at the intended 48) and why `processInterval` exists: a hold
-///                 ties the mover's capital in a token whose only venue is this pool, in front of every holder who
-///                 sells into it, for one batch per depositor per interval;
+///        5. plan again with the dollars actually in hand and retire from the best offer that retires; a credit whose
+///           retirement reverts is passed over for the next best. Paying USDC, the aggregator buys kVCM at the SPOT
+///           reserves of one small Aerodrome pool, which the caller of this very function could move in the same
+///           transaction. Two bars, both on the dollars the aggregator will take for the tonnes it offers:
+///             (a) a RELATIVE bar, compared in kVCM, never in capped tonnes: the kVCM the aggregator needs for the
+///                 offered tonnes (what the dollars buy at SPOT) must be at least `minTonnesBps` of the kVCM those
+///                 dollars buy at the pool's time-weighted price (`twapGranularity` completed observation intervals,
+///                 each at least 30 minutes, the pool fee taken off). Both sides are curve quotes, so a class whose
+///                 liquid supply is under one batch cannot void the bar (the aggregator caps a dollar-budget quote at
+///                 the class's liquid tonnes, which made "tonnes vs reference tonnes" compare L with L). A price set
+///                 inside a transaction never reaches the average. A price HELD for the whole window does: the pool
+///                 writes an observation on any state change and `sync()` is public, so after `twapGranularity`
+///                 intervals the average IS the held price. That is why the window is long (a day at the intended 48)
+///                 and why `processInterval` exists: a hold ties the mover's capital in a token whose only venue is
+///                 this pool, in front of every holder who sells into it, for one batch per depositor per interval;
 ///             (b) an ABSOLUTE bar: never more than `maxUsdcPerTonne`. The ceiling is what bounds a batch's loss
 ///                 whatever the pool says; it is immutable, so it is set well above the market and the rail halts
 ///                 (ETH waits, nothing is lost) if credits ever cost more than that.
 ///           The aggregator is paid at most the planned spend plus a sliver, so an execution that prices unlike the
 ///           quote reverts and is passed over instead of being paid up to the batch;
-///        6. the USDC the aggregator did not take (sub-step rounding, or a credit whose vault could only absorb part
-///           of the batch) stays here as THAT DEPOSITOR'S remainder (`usdcOf`) and is spent on its next batch, so a
-///           retirement message never names someone else's dollars;
-///        7. pay the caller the bounty, last. A caller that cannot take ETH forfeits it to the depositor.
+///        6. the USDC the aggregator did not take (sub-step rounding, or every class vault absorbing only part of the
+///           batch) stays here as THAT DEPOSITOR'S remainder (`usdcOf`) and is spent on its next batches, at most one
+///           `maxBatch`'s worth per batch, so a retirement message never names someone else's dollars and parked
+///           dollars cannot all be priced in one batch;
+///        7. pay the caller the bounty, last, pro rata to the dollars retired out of the dollars this batch bought (a
+///           batch that only parks dollars pays almost nothing; a shortfall of under two steps of a tonne is rounding
+///           and pays in full). The unpaid part, and a bounty a caller cannot take, stay with the depositor.
 ///      What remains open, in numbers: a mover who holds the pool off its average for the whole window and keeps the
 ///      price under the ceiling can take, per depositor, (24h / processInterval) batches a day at the held price; at
 ///      the intended values that is at most 12 × maxBatch × (1 − market / maxUsdcPerTonne) a day against a day of
-///      capital in this pool. Trust that remains: the aggregator is an upgradeable diamond run by Klima; if it, the
-///      class vault, the credit tokens or its pool are retired or reconfigured, every batch skips and the ETH waits
-///      here with no other exit. The aggregator's views are trusted to return well-formed data (a malformed answer
-///      reverts the call rather than skipping), and a retirement that burns all the gas it is handed ends the call
-///      without trying the next credit. The retirement message is grammar v1, assembled from registry fields
-///      validated at registration. Tags are not written by this version (the grammar reserves them).
+///      capital in this pool, and up to twice that for a depositor carrying parked dollars (one batch plus one
+///      `maxBatch` of carry per interval). The per-depositor interval also caps a project's bridge receiver, which is
+///      one depositor, at (24h / processInterval) × maxBatch a day; a leg above that waits here as a backlog. Trust
+///      that remains: the aggregator is an upgradeable diamond run by Klima; if it, the class vault, the credit tokens
+///      or its pool are retired or reconfigured, every batch skips and the ETH waits here with no other exit. The
+///      aggregator's views are trusted to return well-formed data (a malformed answer reverts the call rather than
+///      skipping; the credit tokens' vault balances and the ETH/USD clamp are the exceptions, read raw), and a
+///      retirement that burns all the gas it is handed ends the call without trying the next credit. The retirement
+///      message is grammar v1, assembled from registry fields validated at registration. Tags are not written by
+///      this version (the grammar reserves them).
 contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -77,6 +92,9 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
     /// @dev The aggregator may pull this much over the planned spend (its round-up is a few micro-USDC): 0.1% + 100.
     uint256 public constant PULL_SLACK_BPS = 10;
     uint256 public constant PULL_SLACK_ABS = 100;
+    /// @dev A batch whose dollars fall short of being all retired by under this many steps of a tonne (priced at the
+    ///      ceiling) could not have retired one step more: rounding, not parking. It pays the full bounty.
+    uint256 public constant BOUNTY_DUST_STEPS = 2;
 
     RegenRegistry public immutable registry;
     IKlimaRetirementAggregator public immutable aggregator;
@@ -229,12 +247,14 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         emit Deposited(projectId, msg.sender, msg.value);
     }
 
-    /// @notice Retire one batch of what `depositor` paid in for `projectId`. Anyone may call; the caller earns
-    ///         `bountyBps` of a batch of at least `minBatch`, nothing for a smaller remainder.
+    /// @notice Retire one batch of what `depositor` paid in for `projectId`. Anyone may call; the caller earns up to
+    ///         `bountyBps` of a batch of at least `minBatch` (pro rata to the dollars retired out of the dollars the
+    ///         batch bought), nothing for a smaller remainder or a batch made of the depositor's dollar remainder alone.
     function process(uint256 projectId, address depositor) external nonReentrant {
         RegenRegistry.Project memory p = registry.project(projectId);
         uint256 balance = balanceOf[projectId][depositor];
-        if (balance == 0) revert NothingToProcess();
+        uint256 carried = usdcOf[projectId][depositor];
+        if (balance == 0 && carried == 0) revert NothingToProcess();
         uint256 nextAt = lastRetiredAt[projectId][depositor] + processInterval;
         if (block.timestamp < nextAt) revert TooSoon(nextAt);
         uint256 ethIn = balance > maxBatch ? maxBatch : balance;
@@ -245,29 +265,37 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
             emit Skipped(projectId, depositor, "feedStale");
             return;
         }
-        uint256 carried = usdcOf[projectId][depositor];
-        Plan memory ahead = _plan(minUsdcOut(ethIn - bounty, price) + carried);
+        // Of the remainder, at most one maxBatch's worth of dollars (at the oracle) joins this batch.
+        uint256 carry = carried;
+        uint256 carryCap = maxBatch * price / 1e20;
+        if (carry > carryCap) carry = carryCap;
+        Plan memory ahead = _plan(minUsdcOut(ethIn - bounty, price) + carry);
         if (ahead.credit == address(0)) {
             emit Skipped(projectId, depositor, ahead.reason);
             return;
         }
 
         balanceOf[projectId][depositor] = balance - ethIn;
-        uint256 bought = _swap(ethIn - bounty, price);
-        uint256 held = carried + bought;
+        uint256 bought = ethIn == 0 ? 0 : _swap(ethIn - bounty, price);
 
-        (address credit, uint256 tonnes, uint256 spent) = _retire(projectId, p, depositor, held);
-        usdcOf[projectId][depositor] = held - spent;
+        (address credit, uint256 tonnes, uint256 spent) = _retire(projectId, p, depositor, bought + carry);
+        usdcOf[projectId][depositor] = carried + bought - spent;
         lastRetiredAt[projectId][depositor] = block.timestamp;
         retiredOf[projectId] += tonnes;
         totalRetired += tonnes;
-        emit Processed(projectId, depositor, msg.sender, credit, ethIn, bounty, bought, spent, tonnes);
+        // The bounty is for dollars retired, not dollars parked: a batch that mostly parks pays mostly nothing.
+        // Sub-step rounding is not parking.
+        uint256 paid = spent + BOUNTY_DUST_STEPS * maxUsdcPerTonne * TONNE_STEP / 1e18 >= bought
+            ? bounty
+            : bounty * spent / bought;
+        if (paid < bounty) balanceOf[projectId][depositor] += bounty - paid;
+        emit Processed(projectId, depositor, msg.sender, credit, ethIn, paid, bought, spent, tonnes);
 
-        if (bounty != 0) {
-            (bool ok,) = msg.sender.call{value: bounty}("");
+        if (paid != 0) {
+            (bool ok,) = msg.sender.call{value: paid}("");
             if (!ok) {
-                balanceOf[projectId][depositor] += bounty;
-                emit BountyForfeited(projectId, msg.sender, bounty);
+                balanceOf[projectId][depositor] += paid;
+                emit BountyForfeited(projectId, msg.sender, paid);
             }
         }
     }
@@ -296,22 +324,26 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         return ethIn * price / 1e20 * minOutBps / BPS;
     }
 
-    /// @notice What `amount` USDC should retire from `credit` at the kVCM pool's time-weighted price: the pool's
-    ///         average quote for that many dollars, less the pool's fee, converted at the aggregator's own
-    ///         kVCM-per-tonne rate.
-    function referenceTonnes(address credit, uint256 amount) public view returns (uint256) {
+    /// @notice What `amount` USDC buys in kVCM at the pool's time-weighted price (`twapGranularity` completed
+    ///         intervals), the pool's fee taken off. The relative bar's reference: a credit's offer must need at least
+    ///         `minTonnesBps` of this much kVCM for the dollars it spends.
+    function referenceKvcm(uint256 amount) public view returns (uint256) {
         uint256 kvcmRef = kvcmPool.quote(address(usdc), amount, twapGranularity);
         uint256 fee = IAerodromeFactory(kvcmPool.factory()).getFee(address(kvcmPool), kvcmPool.stable());
         if (fee >= BPS) revert BadParameter(); // a nonsense fee is a refusal, never a free pass
-        kvcmRef = kvcmRef * (BPS - fee) / BPS;
-        (uint256 tonnes,,,,) =
-            aggregator.quoteRetireCreditForInputTokenInViaKlima(credit, 0, kvcmRef, address(kvcm), classVault, 0);
-        return tonnes;
+        return kvcmRef * (BPS - fee) / BPS;
     }
 
-    /// @notice The offer of the first credit token (fixed order) that would retire for `amount` USDC right now, or
-    ///         an empty plan whose reason is "classEmpty" (no credit quotes a step of a tonne, or its vault is empty)
-    ///         or "priceOff" (a credit quotes, but over the ceiling or under the time-weighted bar).
+    /// @notice The kVCM the aggregator asks for `tonnes` of `credit` right now (at the pool's spot); 0 when it cannot
+    ///         say. The relative bar's other side.
+    function kvcmFor(address credit, uint256 tonnes) public view returns (uint256) {
+        return _priceFor(credit, tonnes, address(kvcm));
+    }
+
+    /// @notice The best offer among the three credit tokens for `amount` USDC right now: the one that spends the most
+    ///         of it (fixed order breaks a tie), or an empty plan whose reason is "classEmpty" (no credit quotes a
+    ///         step of a tonne, or every vault is empty) or "priceOff" (a credit quotes, but over the ceiling or under
+    ///         the time-weighted bar).
     function plan(uint256 amount) external view returns (Plan memory) {
         return _plan(amount);
     }
@@ -340,7 +372,9 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
     function _onClamp(int256 answer) private view returns (bool) {
         (bool ok, bytes memory ret) = address(ethUsd).staticcall(abi.encodeCall(IPriceFeed.aggregator, ()));
         if (!ok || ret.length != 32) return false;
-        address agg = abi.decode(ret, (address));
+        uint256 word = abi.decode(ret, (uint256));
+        if (word >> 160 != 0) return false; // not an address: no clamp to check, never a revert
+        address agg = address(uint160(word));
         if (agg.code.length == 0) return false;
         (ok, ret) = agg.staticcall(abi.encodeCall(IPriceFeedAggregator.minAnswer, ()));
         if (ok && ret.length == 32 && answer <= abi.decode(ret, (int256))) return true;
@@ -358,25 +392,47 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         if (bought < required) revert SwapShort(bought, required);
     }
 
-    function _plan(uint256 amount) private view returns (Plan memory none) {
+    /// @dev Every credit's offer for `amount`, in fixed order; `reason` is "priceOff" if any credit was refused for
+    ///      its price, else "classEmpty".
+    function _offers(uint256 amount) private view returns (Plan[3] memory offers, bytes32 reason) {
         address[3] memory order = [creditA, creditB, creditC];
-        none.reason = "classEmpty";
+        reason = "classEmpty";
         for (uint256 i; i < 3; ++i) {
-            Plan memory offer = _offer(order[i], amount);
-            if (offer.credit != address(0)) return offer;
-            if (offer.reason == "priceOff") none.reason = offer.reason;
+            offers[i] = _offer(order[i], amount);
+            if (offers[i].credit == address(0) && offers[i].reason == "priceOff") reason = offers[i].reason;
         }
+    }
+
+    /// @dev The offer that spends the most of `amount`; an earlier credit wins a tie. The first offer that fits is
+    ///      not enough: a vault holding a sliver of the first credit would capture every batch with a micro-tonne.
+    function _best(Plan[3] memory offers) private pure returns (uint256 pick) {
+        pick = 3;
+        for (uint256 i; i < 3; ++i) {
+            if (offers[i].credit == address(0)) continue;
+            if (pick == 3 || offers[i].spend > offers[pick].spend) pick = i;
+        }
+    }
+
+    function _plan(uint256 amount) private view returns (Plan memory best) {
+        (Plan[3] memory offers, bytes32 reason) = _offers(amount);
+        uint256 pick = _best(offers);
+        if (pick == 3) {
+            best.reason = reason;
+            return best;
+        }
+        return offers[pick];
     }
 
     /// @dev What `credit` would retire for `amount` USDC: the aggregator's quote, capped at what the class vault holds
     ///      of the credit (the aggregator quotes its curve regardless, and retires only what the vault has), floored to
     ///      a step of a tonne; the dollars the aggregator will take for those tonnes (it rounds up: one step less if
-    ///      that overshoots); then the ceiling and the time-weighted bar. Any revert in the aggregator's or the pool's
-    ///      views counts against the credit.
+    ///      that overshoots); then the ceiling and the time-weighted bar, the latter compared in kVCM so that neither
+    ///      side is capped by the class's supply. Any revert in the aggregator's or the pool's views, or in the
+    ///      credit's balance read, counts against the credit alone.
     function _offer(address credit, uint256 amount) private view returns (Plan memory p) {
         p.reason = "classEmpty";
         uint256 tonnes = _tonnesFor(credit, amount);
-        uint256 inVault = IERC20(credit).balanceOf(classVault);
+        uint256 inVault = _inVault(credit);
         if (inVault < tonnes) tonnes = inVault;
         tonnes = tonnes / TONNE_STEP * TONNE_STEP;
         if (tonnes == 0) return p;
@@ -389,12 +445,22 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         }
         p.reason = "priceOff";
         if (spend * 1e18 > maxUsdcPerTonne * tonnes) return p;
-        try this.referenceTonnes(credit, spend) returns (uint256 bar) {
-            if (tonnes < bar * minTonnesBps / BPS) return p;
+        uint256 need = _priceFor(credit, tonnes, address(kvcm)); // kVCM for these tonnes: what `spend` buys at spot
+        if (need == 0) return p;
+        try this.referenceKvcm(spend) returns (uint256 ref) {
+            if (need < ref * minTonnesBps / BPS) return p;
         } catch {
             return p;
         }
         return Plan({credit: credit, tonnes: tonnes, spend: spend, reason: ""});
+    }
+
+    /// @dev The class vault's balance of `credit`, read raw: a credit whose `balanceOf` reverts or answers oddly counts
+    ///      as empty for THAT credit, instead of halting every batch of every project.
+    function _inVault(address credit) private view returns (uint256) {
+        (bool ok, bytes memory ret) = credit.staticcall(abi.encodeCall(IERC20.balanceOf, (classVault)));
+        if (!ok || ret.length != 32) return 0;
+        return abi.decode(ret, (uint256));
     }
 
     function _tonnesFor(address credit, uint256 amount) private view returns (uint256) {
@@ -415,7 +481,12 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
 
     /// @dev The USDC the aggregator asks for `tonnes` of `credit` (its `retirementPrice`); 0 when it cannot say.
     function _usdcFor(address credit, uint256 tonnes) private view returns (uint256) {
-        try aggregator.quoteRetireCreditViaKlima(credit, 0, tonnes, address(usdc), classVault, 0) returns (
+        return _priceFor(credit, tonnes, address(usdc));
+    }
+
+    /// @dev What the aggregator asks in `token` for `tonnes` of `credit`; 0 when it cannot say.
+    function _priceFor(address credit, uint256 tonnes, address token) private view returns (uint256) {
+        try aggregator.quoteRetireCreditViaKlima(credit, 0, tonnes, token, classVault, 0) returns (
             uint256,
             uint256 retirementPrice,
             DiscountedForwardBalanceContext memory,
@@ -427,14 +498,14 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         }
     }
 
-    /// @dev Retire from the first credit that plans for `held` and whose retirement goes through at the planned
-    ///      spend (plus a sliver for the aggregator's round-up); a credit that reverts, or would pull more, is passed
-    ///      over. None → revert, which also undoes the swap: the ETH stays credited.
+    /// @dev Retire from the best offer for `held` whose retirement goes through at the planned spend (plus a sliver
+    ///      for the aggregator's round-up), best first; a credit that reverts, or would pull more, is passed over for
+    ///      the next best. None → revert, which also undoes the swap: the ETH stays credited.
     function _retire(uint256 projectId, RegenRegistry.Project memory p, address depositor, uint256 held)
         private
         returns (address credit, uint256 tonnes, uint256 spent)
     {
-        address[3] memory order = [creditA, creditB, creditC];
+        (Plan[3] memory offers,) = _offers(held);
         RetireDetails memory details = RetireDetails({
             retiringAddress: address(this),
             retiringEntityString: RETIRING_ENTITY,
@@ -446,18 +517,19 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
             consumptionPeriodStart: 0,
             consumptionPeriodEnd: 0
         });
-        for (uint256 i; i < 3; ++i) {
-            Plan memory offer = _offer(order[i], held);
-            if (offer.credit == address(0)) continue;
-            uint256 maxIn = offer.spend + offer.spend * PULL_SLACK_BPS / BPS + PULL_SLACK_ABS;
+        for (uint256 n; n < 3; ++n) {
+            uint256 pick = _best(offers);
+            if (pick == 3) break;
+            // copy the fields: a memory struct variable would alias the slot that is marked tried next
+            (credit, tonnes, spent) = (offers[pick].credit, offers[pick].tonnes, offers[pick].spend);
+            offers[pick].credit = address(0); // tried
+            uint256 maxIn = spent + spent * PULL_SLACK_BPS / BPS + PULL_SLACK_ABS;
             if (maxIn > held) maxIn = held;
             uint256 before = usdc.balanceOf(address(this));
             usdc.forceApprove(address(aggregator), maxIn);
-            try aggregator.retireCreditViaKlima(
-                offer.credit, 0, 0, offer.tonnes, address(usdc), classVault, maxIn, 0, details
-            ) {
+            try aggregator.retireCreditViaKlima(credit, 0, 0, tonnes, address(usdc), classVault, maxIn, 0, details) {
                 usdc.forceApprove(address(aggregator), 0);
-                return (offer.credit, offer.tonnes, before - usdc.balanceOf(address(this)));
+                return (credit, tonnes, before - usdc.balanceOf(address(this)));
             } catch {
                 usdc.forceApprove(address(aggregator), 0);
             }
