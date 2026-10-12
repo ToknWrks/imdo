@@ -111,6 +111,23 @@ There is no oracle for kVCM; this is the trade.
 
 ## Rehearsed (dry runs, nothing broadcast; 2026-10-12)
 
+**Second rehearsal, same day, after the ceiling moved to 75 (both passed, nothing broadcast):**
+
+- Base, `DeployRegenRail` from the real deployer (Base nonce 1) with every value in the table above, beneficiary
+  `0x6bbAC4329dcD4C1075A462Db6342Ac0Ce0C78099`, regen address `regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan`: 5
+  transactions, 7,648,333 gas, 0.00008 ETH at 0.0106 gwei. Predicted: registry `0x5C4f…3524`, venue `0x2aBf…1dB0`,
+  router `0x87B5…4e9F`, factory `0xB92B…e93b`, receiver `0x5280…e4Bb` (project 1). These hold only while the deployer's
+  Base nonce is still 1: any Base transaction from it before the broadcast moves every one of them.
+- Ethereum, `script/rehearse-mainnet.sh` with `OFFSETS=0x0`, `RECEIVER_ON_BASE=0x528064dEeb2Aa63542B9Ba4665dA25788093e4Bb`,
+  `TICK=177240` (ETH $2,494 by Chainlink), `LAUNCH=1792422000` (2026-10-19 15:00 UTC): 15 transactions, 13,892,828 gas,
+  0.00196 ETH at 0.14 gwei; the forwarder (`0x3765…E5f1`, deployer nonce 7) was created right after the treasury and the
+  `treasury.offsetsSafe() == forwarder` check passed. The deployer's Ethereum nonce is 3 now (it was 0 at the
+  2026-10-07 rehearsal), so every predicted address differs from that run; the token (`0x87B5…4e9F`) happens to share
+  its address with the Base router (nonce 3 on both chains, different contracts).
+- Funding before the real broadcasts: the deployer held 0.0019 ETH on Ethereum (the simulation itself needs 0.00196
+  at 0.14 gwei; at 1 gwei the deploy is ~0.014 ETH) and 0.0002 ETH on Base. Fund Ethereum to at least 0.03 ETH and
+  Base to 0.001 ETH first. Order stays: Base broadcast, read the real receiver, then Ethereum with that receiver.
+
 - `DeployRegenRail` against live Base with the intended values above: preflight passed on the real addresses (pool
   tokens, code, the V3 pool at the fee tier), 5 transactions, ~7.5M gas (~0.00008 ETH at 0.01 gwei). The broadcast
   sender must be an EOA.
