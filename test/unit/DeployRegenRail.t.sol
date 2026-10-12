@@ -3,9 +3,23 @@ pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {DeployRegenRail} from "../../script/DeployRegenRail.s.sol";
-import {MockUsdc, MockKvcm, MockPool, MockFeed, MockAggregator} from "./RegenRouter.t.sol";
+import {MockUsdc, MockKvcm, MockPool, MockFeed, MockAggregator, MockCredit} from "./RegenRouter.t.sol";
 
 contract HasCode {}
+
+contract MockV3Factory {
+    function getPool(address, address, uint24 fee) external pure returns (address) {
+        return fee == 500 ? address(0xB001) : address(0);
+    }
+}
+
+contract MockSwapRouter02 {
+    address public factory;
+
+    constructor() {
+        factory = address(new MockV3Factory());
+    }
+}
 
 contract DeployRegenRailTest is Test {
     DeployRegenRail internal script;
@@ -23,7 +37,8 @@ contract DeployRegenRailTest is Test {
         kvcm = new MockKvcm();
         pool = new MockPool(address(kvcm), address(usdc));
         feed = new MockFeed();
-        agg = new MockAggregator(usdc, address(kvcm), pool, 22e18);
+        address vault = address(new HasCode());
+        agg = new MockAggregator(usdc, address(kvcm), pool, vault, 22e18);
         c = DeployRegenRail.Config({
             chainId: block.chainid,
             deployer: address(script),
@@ -31,11 +46,11 @@ contract DeployRegenRailTest is Test {
             usdc: address(usdc),
             kvcm: address(kvcm),
             kvcmPool: address(pool),
-            classVault: address(new HasCode()),
-            creditA: address(new HasCode()),
-            creditB: address(new HasCode()),
-            creditC: address(new HasCode()),
-            swapRouter02: address(new HasCode()),
+            classVault: vault,
+            creditA: address(new MockCredit("A")),
+            creditB: address(new MockCredit("B")),
+            creditC: address(new MockCredit("C")),
+            swapRouter02: address(new MockSwapRouter02()),
             weth: address(new HasCode()),
             v3Fee: 500,
             ethUsd: address(feed),
@@ -45,8 +60,10 @@ contract DeployRegenRailTest is Test {
             maxBatch: 0.05 ether,
             bountyBps: 50,
             minOutBps: 9700,
-            twapGranularity: 4,
-            minTonnesBps: 9700,
+            twapGranularity: 48,
+            minTonnesBps: 9500,
+            maxUsdcPerTonne: 45e6,
+            processInterval: 7200,
             projectName: "IMDO",
             regenAddress: REGEN,
             beneficiary: beneficiary
@@ -64,8 +81,11 @@ contract DeployRegenRailTest is Test {
         assertEq(d.venue.token(), address(usdc));
         assertEq(d.venue.fee(), 500);
         assertEq(d.router.maxBatch(), 0.05 ether);
-        assertEq(d.router.twapGranularity(), 4);
-        assertEq(d.router.minTonnesBps(), 9700);
+        assertEq(d.router.twapGranularity(), 48);
+        assertEq(d.router.minTonnesBps(), 9500);
+        assertEq(d.router.maxUsdcPerTonne(), 45e6);
+        assertEq(d.router.processInterval(), 7200);
+        assertEq(d.registry.count(), 1); // registered in the registry's own creation
         assertEq(address(d.router.sequencerUptime()), c.sequencerUptime);
         assertEq(address(d.factory.router()), address(d.router));
         assertEq(d.receiver, d.factory.predict(1));
@@ -88,6 +108,14 @@ contract DeployRegenRailTest is Test {
         script.deploy(c);
         c = _config();
         c.kvcmPool = address(new MockPool(address(kvcm), makeAddr("other")));
+        vm.expectRevert(DeployRegenRail.InvalidConfiguration.selector);
+        script.deploy(c);
+        c = _config();
+        c.v3Fee = 1234; // no WETH/USDC pool at that tier
+        vm.expectRevert(DeployRegenRail.InvalidConfiguration.selector);
+        script.deploy(c);
+        c = _config();
+        c.projectName = "";
         vm.expectRevert(DeployRegenRail.InvalidConfiguration.selector);
         script.deploy(c);
         c = _config();

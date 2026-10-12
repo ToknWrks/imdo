@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {RegenRegistry} from "../../src/regen/RegenRegistry.sol";
 import {RegenRouter} from "../../src/regen/RegenRouter.sol";
 import {IPriceFeed} from "../../src/regen/interfaces/IEthToTokenSwap.sol";
-import {MockUsdc, MockKvcm, MockPool, MockFeed, MockAggregator, MockVenue} from "../unit/RegenRouter.t.sol";
+import {MockUsdc, MockKvcm, MockPool, MockFeed, MockAggregator, MockVenue, MockCredit} from "../unit/RegenRouter.t.sol";
 
 /// @dev Drives the router from several depositors over several projects while the world moves: the kVCM pool's spot
 ///      and average, the ETH/USDC fill, credit supply, retirement reverts, the feed, keepers that cannot take ETH.
@@ -85,7 +85,11 @@ contract RegenRouterHandler is Test {
     }
 
     function supply(uint8 which, uint64 tonnes) external {
-        agg.setCredit(credits[which % 3], uint256(tonnes) * 1e12); // 0 .. ~18k t in 1e-6 t steps
+        agg.setCredit(credits[which % 3], uint256(tonnes) * 1e12); // the vault's balance: 0 .. ~18k t
+    }
+
+    function overPull(uint8 which, bool on) external {
+        agg.setOverPull(credits[which % 3], on);
     }
 
     function breakRetire(uint8 which, bool broken) external {
@@ -97,7 +101,7 @@ contract RegenRouterHandler is Test {
     }
 
     function tick(uint32 elapsed, bool stale) external {
-        clock += bound(elapsed, 1, 2 hours);
+        clock += bound(elapsed, 1, 3 hours);
         vm.warp(clock);
         feed.set(2500e8, stale ? clock - 3601 : clock);
     }
@@ -107,6 +111,15 @@ contract RegenRouterHandler is Test {
         uint256 id = project % PROJECTS + 1;
         uint256 bal = router.balanceOf(id, d);
         if (bal == 0) return;
+        if (clock < router.lastRetiredAt(id, d) + router.processInterval()) {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    RegenRouter.TooSoon.selector, router.lastRetiredAt(id, d) + router.processInterval()
+                )
+            );
+            router.process(id, d);
+            return;
+        }
         rejectBounty = reject;
         uint256 ethIn = bal > router.maxBatch() ? router.maxBatch() : bal;
         uint256 bounty = ethIn >= router.minBatch() ? ethIn * router.bountyBps() / router.BPS() : 0;
@@ -156,14 +169,15 @@ contract RegenRouterInvariantTest is Test {
 
     function setUp() public {
         vm.warp(1_800_000_000);
-        RegenRegistry reg = new RegenRegistry();
+        RegenRegistry reg = new RegenRegistry("", "", address(0));
         usdc = new MockUsdc();
         MockKvcm kvcm = new MockKvcm();
         MockPool pool = new MockPool(address(kvcm), address(usdc));
         MockFeed feed = new MockFeed();
-        agg = new MockAggregator(usdc, address(kvcm), pool, 22e18);
         venue = new MockVenue(usdc, 2500e6);
-        credits = [makeAddr("C02-004"), makeAddr("C02-003"), makeAddr("C02-006")];
+        credits = [address(new MockCredit("A")), address(new MockCredit("B")), address(new MockCredit("C"))];
+        address vault = makeAddr("vault");
+        agg = new MockAggregator(usdc, address(kvcm), pool, vault, 22e18);
         router = new RegenRouter(
             RegenRouter.Config({
                 registry: reg,
@@ -171,7 +185,7 @@ contract RegenRouterInvariantTest is Test {
                 usdc: IERC20(address(usdc)),
                 kvcm: IERC20(address(kvcm)),
                 kvcmPool: pool,
-                classVault: makeAddr("vault"),
+                classVault: vault,
                 creditA: credits[0],
                 creditB: credits[1],
                 creditC: credits[2],
@@ -184,7 +198,9 @@ contract RegenRouterInvariantTest is Test {
                 bountyBps: 50,
                 minOutBps: 9700,
                 twapGranularity: 4,
-                minTonnesBps: 9700
+                minTonnesBps: 9700,
+                maxUsdcPerTonne: 45e6,
+                processInterval: 7200
             })
         );
         reg.register("IMDO", "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan", makeAddr("imdo-safe"));
@@ -202,6 +218,8 @@ contract RegenRouterInvariantTest is Test {
         handler.process(0, 0, false);
         assertEq(handler.processed(), 1);
         assertGt(handler.retiredTonnes(), 0);
+        handler.process(0, 0, false); // too soon: expected revert, nothing moved
+        assertEq(handler.processed(), 1);
         handler.deposit(1, 1, 0.01 ether);
         handler.moveSpot(2000);
         handler.process(1, 1, false);
@@ -215,6 +233,7 @@ contract RegenRouterInvariantTest is Test {
         handler.breakRetire(0, false);
         handler.process(1, 1, true); // keeper that cannot take ETH: bounty re-credited
         assertEq(handler.processed(), 2);
+        handler.tick(7200, false);
         handler.process(1, 1, false); // the re-credited remainder, no bounty
         assertEq(handler.processed(), 3);
         invariant_ethIsConserved();
@@ -242,7 +261,9 @@ contract RegenRouterInvariantTest is Test {
     function invariant_usdcIsConservedAndAttributed() public view {
         uint256 carried;
         for (uint256 p = 1; p <= handler.PROJECTS(); ++p) {
-            carried += router.usdcOf(p);
+            for (uint256 i; i < 3; ++i) {
+                carried += router.usdcOf(p, handler.depositors(i));
+            }
         }
         assertEq(usdc.balanceOf(address(router)), carried);
         assertEq(handler.usdcBought(), handler.usdcSpent() + carried);

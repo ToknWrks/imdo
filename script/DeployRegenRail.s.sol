@@ -7,15 +7,23 @@ import {RegenRegistry} from "../src/regen/RegenRegistry.sol";
 import {RegenRouter} from "../src/regen/RegenRouter.sol";
 import {RegenReceiverFactory} from "../src/regen/RegenReceiver.sol";
 import {UniswapV3Venue, ISwapRouter02} from "../src/regen/UniswapV3Venue.sol";
+
+interface ISwapRouter02Factory {
+    function factory() external view returns (address);
+}
+
+interface IUniswapV3Factory {
+    function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address);
+}
 import {IKlimaRetirementAggregator} from "../src/regen/interfaces/IKlimaRetirementAggregator.sol";
 import {IEthToTokenSwap, IPriceFeed} from "../src/regen/interfaces/IEthToTokenSwap.sol";
 import {IAerodromePool} from "../src/regen/interfaces/IAerodromePool.sol";
 
-/// @notice The Regen rail on Base, in one broadcast and in this order: registry, venue, router, receiver factory, the
-///         first project registered (id 1, the same transaction sequence as the registry so nobody can take the name
-///         or the id first), its receiver deployed. The receiver's address is what the Ethereum deploy
-///         (`DeployImdo`, `receiverOnBase`) is then given. All configuration arrives as arguments; no keys or
-///         environment reads. Dry run by default; broadcasting needs the operator's signer and flag.
+/// @notice The Regen rail on Base, in one broadcast and in this order: registry WITH the first project (registered by
+///         the registry's constructor, in its creation transaction, so nobody can take the name or the id first),
+///         venue, router, receiver factory, the project's receiver deployed. The receiver's address is what the
+///         Ethereum deploy (`DeployImdo`, `receiverOnBase`) is then given. All configuration arrives as arguments; no
+///         keys or environment reads. Dry run by default; broadcasting needs the operator's signer and flag.
 contract DeployRegenRail is Script {
     struct Config {
         uint256 chainId;
@@ -40,6 +48,8 @@ contract DeployRegenRail is Script {
         uint256 minOutBps;
         uint256 twapGranularity;
         uint256 minTonnesBps;
+        uint256 maxUsdcPerTonne;
+        uint256 processInterval;
         string projectName;
         string regenAddress;
         address beneficiary;
@@ -65,7 +75,7 @@ contract DeployRegenRail is Script {
 
     function deploy(Config memory c) public returns (Deployment memory d) {
         preflight(c);
-        d.registry = new RegenRegistry();
+        d.registry = new RegenRegistry(c.projectName, c.regenAddress, c.beneficiary);
         d.venue = new UniswapV3Venue(ISwapRouter02(c.swapRouter02), c.weth, c.usdc, c.v3Fee);
         d.router = new RegenRouter(
             RegenRouter.Config({
@@ -87,12 +97,16 @@ contract DeployRegenRail is Script {
                 bountyBps: c.bountyBps,
                 minOutBps: c.minOutBps,
                 twapGranularity: c.twapGranularity,
-                minTonnesBps: c.minTonnesBps
+                minTonnesBps: c.minTonnesBps,
+                maxUsdcPerTonne: c.maxUsdcPerTonne,
+                processInterval: c.processInterval
             })
         );
         d.factory = new RegenReceiverFactory(d.router);
-        d.projectId = d.registry.register(c.projectName, c.regenAddress, c.beneficiary);
-        if (d.projectId != 1) revert InvalidConfiguration();
+        d.projectId = 1;
+        if (d.registry.count() != 1 || d.registry.project(1).beneficiary != c.beneficiary) {
+            revert InvalidConfiguration();
+        }
         address predicted = d.factory.predict(d.projectId);
         d.receiver = d.factory.deploy(d.projectId);
         if (d.receiver != predicted) revert InvalidConfiguration();
@@ -111,8 +125,12 @@ contract DeployRegenRail is Script {
         if (
             c.minBatch == 0 || c.maxBatch < c.minBatch || c.bountyBps >= 10_000 || c.minOutBps == 0
                 || c.minOutBps > 10_000 || c.maxFeedAge == 0 || c.twapGranularity == 0 || c.minTonnesBps == 0
-                || c.minTonnesBps > 10_000
+                || c.minTonnesBps > 10_000 || c.maxUsdcPerTonne == 0 || c.processInterval == 0
+                || bytes(c.projectName).length == 0
         ) revert InvalidConfiguration();
+        // The ETH leg's pool must exist at this fee tier: an ownerless router whose swap always reverts has no exit.
+        address v3Factory = ISwapRouter02Factory(c.swapRouter02).factory();
+        if (IUniswapV3Factory(v3Factory).getPool(c.weth, c.usdc, c.v3Fee) == address(0)) revert InvalidConfiguration();
         address t0 = IAerodromePool(c.kvcmPool).token0();
         address t1 = IAerodromePool(c.kvcmPool).token1();
         if (!((t0 == c.usdc && t1 == c.kvcm) || (t0 == c.kvcm && t1 == c.usdc))) revert InvalidConfiguration();

@@ -32,6 +32,31 @@ contract MockKvcm is ERC20 {
     constructor() ERC20("kVCM", "kVCM") {}
 }
 
+/// @dev A credit token (18 dec = tonnes). The class vault holds the retirable supply; anyone may mint or burn here.
+contract MockCredit is ERC20 {
+    constructor(string memory n) ERC20(n, n) {}
+
+    function mint(address to, uint256 a) external {
+        _mint(to, a);
+    }
+
+    function burn(address from, uint256 a) external {
+        _burn(from, a);
+    }
+}
+
+contract MockAeroFactory {
+    uint256 public fee = 30;
+
+    function setFee(uint256 f) external {
+        fee = f;
+    }
+
+    function getFee(address, bool) external view returns (uint256) {
+        return fee;
+    }
+}
+
 /// @dev The aggregator behind a Chainlink proxy, with its clamp.
 contract MockClamp is IPriceFeedAggregator {
     int192 public minAnswer = 1;
@@ -49,6 +74,7 @@ contract MockFeed is IPriceFeed {
     uint256 public startedAt;
     uint256 public updatedAt;
     MockClamp public clamp;
+    address public clampAddress;
     bool public noAggregator;
 
     constructor() {
@@ -67,6 +93,10 @@ contract MockFeed is IPriceFeed {
         noAggregator = b;
     }
 
+    function setAggregatorAddress(address a) external {
+        clampAddress = a;
+    }
+
     function decimals() external pure returns (uint8) {
         return 8;
     }
@@ -77,7 +107,7 @@ contract MockFeed is IPriceFeed {
 
     function aggregator() external view returns (IPriceFeedAggregator) {
         require(!noAggregator, "no aggregator");
-        return clamp;
+        return clampAddress != address(0) ? IPriceFeedAggregator(clampAddress) : clamp;
     }
 }
 
@@ -87,6 +117,7 @@ contract MockFeed is IPriceFeed {
 contract MockPool is IAerodromePool {
     address public token0;
     address public token1;
+    MockAeroFactory public aeroFactory;
     uint256 public spot = 1e18;
     uint256 public twap = 1e18;
     uint256 public roundUpExtra;
@@ -95,6 +126,15 @@ contract MockPool is IAerodromePool {
     constructor(address kvcm, address usdc) {
         token0 = kvcm;
         token1 = usdc;
+        aeroFactory = new MockAeroFactory();
+    }
+
+    function stable() external pure returns (bool) {
+        return false;
+    }
+
+    function factory() external view returns (address) {
+        return address(aeroFactory);
     }
 
     function setSpot(uint256 s) external {
@@ -177,17 +217,19 @@ contract NoReceive {
     }
 }
 
-/// @dev Klima stand-in. USDC is turned into kVCM at the pool's SPOT (that is what the real aggregator does), kVCM
-///      retires at `kvcmPerTonne` (18 dec, Klima's own curve), supply per credit token caps a quote, the USDC it asks
-///      for is rounded up, and it pulls USDC from the caller.
+/// @dev Klima stand-in, shaped like the chain: USDC is turned into kVCM at the pool's SPOT, kVCM retires at
+///      `kvcmPerTonne` (18 dec, Klima's own curve), a QUOTE never looks at the vault (the real one quotes its curve
+///      regardless), a RETIREMENT burns the credit from the class vault and reverts when the vault is short, the USDC
+///      it asks for is rounded up, and it pulls USDC from the caller. `setCredit(c, t)` sets the vault's balance.
 contract MockAggregator is IKlimaRetirementAggregator {
     MockUsdc public usdc;
     address public kvcm;
     MockPool public pool;
+    address public vault;
     uint256 public kvcmPerTonne;
-    mapping(address => uint256) public supply;
     mapping(address => bool) public supported;
     mapping(address => bool) public retireBroken;
+    mapping(address => bool) public overPull;
     RetireDetails public last;
     address public lastCredit;
     uint256 public lastTonnes;
@@ -197,21 +239,35 @@ contract MockAggregator is IKlimaRetirementAggregator {
     error TokenNotSupported();
     error SlippageExceeded(uint256 required, uint256 maxAllowed);
     error InvalidAmountReceived();
+    error InsufficientCredit();
 
-    constructor(MockUsdc u, address k, MockPool p, uint256 perTonne) {
+    constructor(MockUsdc u, address k, MockPool p, address v, uint256 perTonne) {
         usdc = u;
         kvcm = k;
         pool = p;
+        vault = v;
         kvcmPerTonne = perTonne;
     }
 
+    /// @dev Makes `c` a known credit whose vault balance is `tonnes`.
     function setCredit(address c, uint256 tonnes) external {
         supported[c] = true;
-        supply[c] = tonnes;
+        uint256 have = MockCredit(c).balanceOf(vault);
+        if (tonnes > have) MockCredit(c).mint(vault, tonnes - have);
+        else if (have > tonnes) MockCredit(c).burn(vault, have - tonnes);
+    }
+
+    function supply(address c) external view returns (uint256) {
+        return MockCredit(c).balanceOf(vault);
     }
 
     function setRetireBroken(address c, bool b) external {
         retireBroken[c] = b;
+    }
+
+    /// @dev The execution path prices unlike the quote path (an upgraded diamond): pulls twice the quoted USDC.
+    function setOverPull(address c, bool b) external {
+        overPull[c] = b;
     }
 
     function quoteRetireCreditForInputTokenInViaKlima(
@@ -234,8 +290,7 @@ contract MockAggregator is IKlimaRetirementAggregator {
     {
         if (!supported[creditToken]) revert TokenNotSupported();
         uint256 kvcmIn = inputToken == address(usdc) ? pool.getAmountOut(amount) : amount;
-        tonnes = kvcmIn * 1e18 / kvcmPerTonne;
-        if (tonnes > supply[creditToken]) tonnes = supply[creditToken];
+        tonnes = kvcmIn * 1e18 / kvcmPerTonne; // the curve, whatever the vault holds
         return (tonnes, amount, 0, d, u);
     }
 
@@ -256,9 +311,7 @@ contract MockAggregator is IKlimaRetirementAggregator {
             UpdateLiquidSupplyRateLimiterParams memory u
         )
     {
-        if (!supported[creditToken] || tonnes > supply[creditToken]) {
-            revert TokenNotSupported();
-        }
+        if (!supported[creditToken]) revert TokenNotSupported();
         return (tonnes, _cost(tonnes, inputToken), d, u);
     }
 
@@ -273,12 +326,14 @@ contract MockAggregator is IKlimaRetirementAggregator {
         uint256,
         RetireDetails memory details
     ) external {
-        if (!supported[creditToken] || tonnes > supply[creditToken]) revert TokenNotSupported();
+        if (!supported[creditToken]) revert TokenNotSupported();
         if (retireBroken[creditToken]) revert InvalidAmountReceived();
+        if (MockCredit(creditToken).balanceOf(vault) < tonnes) revert InsufficientCredit();
         uint256 cost = _cost(tonnes, inputToken);
+        if (overPull[creditToken]) cost *= 2;
         if (cost > maxIn) revert SlippageExceeded(cost, maxIn);
         require(usdc.transferFrom(msg.sender, address(this), cost), "pull");
-        supply[creditToken] -= tonnes;
+        MockCredit(creditToken).burn(vault, tonnes);
         last = details;
         lastCredit = creditToken;
         lastTonnes = tonnes;
@@ -303,9 +358,9 @@ contract RegenRouterTest is Test {
     RegenRouter internal router;
     RegenReceiverFactory internal factory;
 
-    address internal creditA = makeAddr("C02-004");
-    address internal creditB = makeAddr("C02-003");
-    address internal creditC = makeAddr("C02-006");
+    address internal creditA;
+    address internal creditB;
+    address internal creditC;
     address internal vault = makeAddr("class-vault");
     address internal beneficiary = makeAddr("imdo-safe");
     address internal depositor = makeAddr("pot-safe");
@@ -315,19 +370,24 @@ contract RegenRouterTest is Test {
     uint256 internal constant RATE = 2500e6; // USDC per ETH, equal to the oracle
     /// @dev 22 kVCM per tonne; the pool pays 1 kVCM per USDC, so a tonne costs 22 USDC.
     uint256 internal constant PER_TONNE = 22e18;
+    uint256 internal constant CEILING = 45e6; // USDC per tonne
+    uint256 internal constant INTERVAL = 7200;
 
     /// @dev The test contract calls `process` directly in most tests and must be able to take the bounty.
     receive() external payable {}
 
     function setUp() public {
         vm.warp(1_800_000_000);
-        reg = new RegenRegistry();
+        reg = new RegenRegistry("", "", address(0));
         usdc = new MockUsdc();
         kvcm = new MockKvcm();
         pool = new MockPool(address(kvcm), address(usdc));
         feed = new MockFeed();
         feed.set(2500e8, block.timestamp);
-        agg = new MockAggregator(usdc, address(kvcm), pool, PER_TONNE);
+        creditA = address(new MockCredit("C02-004"));
+        creditB = address(new MockCredit("C02-003"));
+        creditC = address(new MockCredit("C02-006"));
+        agg = new MockAggregator(usdc, address(kvcm), pool, vault, PER_TONNE);
         venue = new MockVenue(usdc, RATE);
         router = new RegenRouter(_config(0.001 ether, 0.02 ether, 100, 9700));
         factory = new RegenReceiverFactory(router);
@@ -362,13 +422,21 @@ contract RegenRouterTest is Test {
             bountyBps: bounty,
             minOutBps: minOut,
             twapGranularity: 4,
-            minTonnesBps: 9700
+            minTonnesBps: 9700,
+            maxUsdcPerTonne: CEILING,
+            processInterval: INTERVAL
         });
     }
 
     function _deposit(uint256 amount) internal {
         vm.prank(depositor);
         router.deposit{value: amount}(1);
+    }
+
+    /// @dev Past the interval, so the same (project, depositor) may be processed again.
+    function _later() internal {
+        vm.warp(block.timestamp + INTERVAL);
+        feed.set(2500e8, block.timestamp);
     }
 
     // ---- deposits -------------------------------------------------------------------------------------------------
@@ -407,7 +475,7 @@ contract RegenRouterTest is Test {
         assertEq(router.totalRetired(), 1.125e18);
         assertEq(usdc.allowance(address(router), address(agg)), 0);
         assertEq(usdc.balanceOf(address(router)), 0);
-        assertEq(router.usdcOf(1), 0);
+        assertEq(router.usdcOf(1, depositor), 0);
 
         (address ra, string memory res, address ba, string memory bs, string memory msg_,,,,) = agg.last();
         assertEq(ra, address(router));
@@ -447,12 +515,44 @@ contract RegenRouterTest is Test {
         router.process(1, depositor);
         assertEq(router.balanceOf(1, depositor), 0.03 ether);
         assertEq(keeper.balance, 0.0002 ether); // 1% of 0.02
+        _later();
         vm.prank(keeper);
         router.process(1, depositor);
+        _later();
         vm.prank(keeper);
         router.process(1, depositor);
         assertEq(router.balanceOf(1, depositor), 0);
         assertEq(agg.retirements(), 3);
+    }
+
+    function test_oneRetirementPerDepositorPerInterval() public {
+        _deposit(0.05 ether);
+        router.process(1, depositor);
+        uint256 nextAt = block.timestamp + INTERVAL;
+        assertEq(router.lastRetiredAt(1, depositor), block.timestamp);
+        vm.expectRevert(abi.encodeWithSelector(RegenRouter.TooSoon.selector, nextAt));
+        router.process(1, depositor);
+        vm.warp(nextAt - 1);
+        feed.set(2500e8, block.timestamp);
+        vm.expectRevert(abi.encodeWithSelector(RegenRouter.TooSoon.selector, nextAt));
+        router.process(1, depositor);
+        vm.warp(nextAt);
+        router.process(1, depositor);
+        assertEq(agg.retirements(), 2);
+        // another depositor of the same project is not held up
+        address other = makeAddr("other-depositor");
+        vm.deal(other, 1 ether);
+        vm.prank(other);
+        router.deposit{value: 0.01 ether}(1);
+        router.process(1, other);
+        assertEq(agg.retirements(), 3);
+        // a skip does not start the clock
+        _later();
+        pool.setSpot(0.5e18);
+        router.process(1, depositor); // priceOff
+        pool.setSpot(1e18);
+        router.process(1, depositor);
+        assertEq(agg.retirements(), 4);
     }
 
     function test_aRemainderUnderMinBatchIsProcessedWithNoBounty() public {
@@ -464,9 +564,11 @@ contract RegenRouterTest is Test {
         assertEq(agg.lastTonnes(), 0.102272e18); // 0.0009 ETH × 2500 = 2.25 USDC / 22, floored to a step
         // the slice after the last full batch, too
         _deposit(0.0205 ether);
+        _later();
         vm.prank(keeper);
         router.process(1, depositor);
         assertEq(router.balanceOf(1, depositor), 0.0005 ether);
+        _later();
         vm.prank(keeper);
         router.process(1, depositor);
         assertEq(router.balanceOf(1, depositor), 0);
@@ -503,12 +605,27 @@ contract RegenRouterTest is Test {
         assertEq(agg.lastCredit(), creditB);
         agg.setCredit(creditB, 0);
         _deposit(0.01 ether);
+        _later();
         router.process(1, depositor);
         assertEq(agg.lastCredit(), creditC);
     }
 
+    function test_theAggregatorIsPaidAtMostThePlannedSpendPlusASliver() public {
+        agg.setOverPull(creditA, true); // the execution path prices unlike the quote path: passed over
+        _deposit(0.01 ether);
+        router.process(1, depositor);
+        assertEq(agg.lastCredit(), creditB);
+        assertEq(usdc.allowance(address(router), address(agg)), 0);
+        agg.setOverPull(creditB, true);
+        agg.setOverPull(creditC, true);
+        _deposit(0.01 ether);
+        _later();
+        vm.expectRevert(RegenRouter.NothingRetired.selector);
+        router.process(1, depositor);
+    }
+
     function test_anUnsupportedTokenIsSkippedNotFatal() public {
-        MockAggregator a2 = new MockAggregator(usdc, address(kvcm), pool, PER_TONNE);
+        MockAggregator a2 = new MockAggregator(usdc, address(kvcm), pool, vault, PER_TONNE);
         a2.setCredit(creditC, 10e18); // A and B never registered: the quote reverts TokenNotSupported
         agg = a2;
         router = new RegenRouter(_config(0.001 ether, 0.02 ether, 100, 9700));
@@ -539,18 +656,19 @@ contract RegenRouterTest is Test {
 
     function test_dustCarriesToTheNextBatchOfTheSameProject() public {
         // 24.75 USDC at 23/t = 1.076086956… t, floored to 1.076086 t → spends 24.749978, 22 micro-USDC dust
-        agg = new MockAggregator(usdc, address(kvcm), pool, 23e18);
+        agg = new MockAggregator(usdc, address(kvcm), pool, vault, 23e18);
         agg.setCredit(creditA, 1000e18);
         router = new RegenRouter(_config(0.001 ether, 0.02 ether, 100, 9700));
         _deposit(0.01 ether);
         router.process(1, depositor);
         assertEq(usdc.balanceOf(address(router)), 22);
-        assertEq(router.usdcOf(1), 22);
+        assertEq(router.usdcOf(1, depositor), 22);
         assertEq(agg.lastTonnes(), 1.076086e18);
         _deposit(0.01 ether);
+        _later();
         router.process(1, depositor);
-        assertLt(router.usdcOf(1), 24); // under one six-decimal step's worth of USDC
-        assertEq(usdc.balanceOf(address(router)), router.usdcOf(1));
+        assertLt(router.usdcOf(1, depositor), 24); // under one six-decimal step's worth of USDC
+        assertEq(usdc.balanceOf(address(router)), router.usdcOf(1, depositor));
     }
 
     function test_theAggregatorsRoundUpIsGivenAStepOfSlack() public {
@@ -558,7 +676,7 @@ contract RegenRouterTest is Test {
         _deposit(0.01 ether);
         router.process(1, depositor);
         assertEq(agg.lastTonnes(), 1.124999e18); // one step under 1.125 t, instead of SlippageExceeded
-        assertEq(router.usdcOf(1), 24.75e6 - 24_749_979);
+        assertEq(router.usdcOf(1, depositor), 24.75e6 - 24_749_979);
     }
 
     // ---- the ETH leg: oracle ceiling ------------------------------------------------------------------------------
@@ -569,6 +687,36 @@ contract RegenRouterTest is Test {
         vm.expectRevert("venue: min");
         router.process(1, depositor);
         venue.setRate(RATE * 975 / 1000); // 2.5% under: inside the 3% ceiling
+        router.process(1, depositor);
+    }
+
+    function test_theCeilingHoldsWhateverThePoolSays() public {
+        _deposit(0.03 ether);
+        pool.setSpot(0.4e18);
+        pool.setTwap(0.4e18); // held for the whole window: 55 USDC per tonne
+        vm.expectEmit(true, true, false, true);
+        emit RegenRouter.Skipped(1, depositor, "priceOff");
+        router.process(1, depositor);
+        assertEq(router.balanceOf(1, depositor), 0.03 ether);
+        pool.setSpot(0.5e18);
+        pool.setTwap(0.5e18); // 44 USDC per tonne: under the 45 ceiling
+        router.process(1, depositor);
+        assertEq(agg.lastTonnes(), 1.125e18); // 49.5 × 0.5 / 22
+        RegenRouter.Plan memory pl = router.plan(49.5e6);
+        assertEq(pl.spend * 1e18 / pl.tonnes, 44e6);
+    }
+
+    function test_theReferenceTakesThePoolFeeOff() public {
+        _deposit(0.03 ether);
+        pool.aeroFactory().setFee(300); // a 3% pool fee
+        pool.setSpot(0.965e18); // 3.5% under the fee-exclusive average, 0.5% under the fee-inclusive one
+        router.process(1, depositor);
+        assertEq(agg.retirements(), 1);
+        assertEq(router.referenceTonnes(creditA, 22e6), 0.97e18);
+        pool.aeroFactory().setFee(10_000); // nonsense: nothing passes, nothing spent
+        _later();
+        vm.expectEmit(true, true, false, true);
+        emit RegenRouter.Skipped(1, depositor, "priceOff");
         router.process(1, depositor);
     }
 
@@ -611,6 +759,18 @@ contract RegenRouterTest is Test {
         assertEq(agg.retirements(), 1);
     }
 
+    function test_aProxyWithoutAnAggregatorOrAMalformedOneIsNotAClamp() public {
+        _deposit(0.03 ether);
+        feed.setNoAggregator(true); // aggregator() reverts
+        router.process(1, depositor);
+        assertEq(agg.retirements(), 1);
+        feed.setNoAggregator(false);
+        feed.setAggregatorAddress(makeAddr("no-code")); // aggregator() names an address with no code
+        _later();
+        router.process(1, depositor);
+        assertEq(agg.retirements(), 2);
+    }
+
     function test_anAnswerOnTheClampIsStale() public {
         _deposit(0.03 ether);
         feed.clamp().set(2500e8, 10_000e8); // the market fell to the floor of the feed's range
@@ -625,6 +785,7 @@ contract RegenRouterTest is Test {
         router.process(1, depositor);
         assertEq(agg.retirements(), 1);
         feed.setNoAggregator(true); // a feed with no clamp to read is fine
+        _later();
         router.process(1, depositor);
         assertEq(agg.retirements(), 2);
     }
@@ -683,6 +844,7 @@ contract RegenRouterTest is Test {
         router.process(1, depositor);
         assertEq(agg.lastTonnes(), 2.205e18); // 0.0198 ETH → 49.5 USDC × 0.98 / 22
         pool.setSpot(1.1e18); // better than the average is always fine
+        _later();
         router.process(1, depositor);
         assertEq(agg.retirements(), 2);
     }
@@ -697,10 +859,10 @@ contract RegenRouterTest is Test {
 
     function test_anAverageMovedWithThePriceIsTheDocumentedLimit() public {
         _deposit(0.01 ether);
-        pool.setSpot(0.5e18);
-        pool.setTwap(0.5e18); // held there for the whole window
+        pool.setSpot(0.6e18);
+        pool.setTwap(0.6e18); // held there for the whole window; 36.7 USDC per tonne, under the ceiling
         router.process(1, depositor);
-        assertEq(agg.lastTonnes(), 0.5625e18);
+        assertEq(agg.lastTonnes(), 0.675e18);
     }
 
     function test_aBrokenPoolQuoteSkips() public {
@@ -712,26 +874,27 @@ contract RegenRouterTest is Test {
         assertEq(router.balanceOf(1, depositor), 0.01 ether);
     }
 
-    function test_referenceTonnesIsTheAverageAtTheAggregatorsRate() public {
-        assertEq(router.referenceTonnes(creditA, 22e6), 1e18);
+    function test_referenceTonnesIsTheAverageLessTheFeeAtTheAggregatorsRate() public {
+        assertEq(router.referenceTonnes(creditA, 22e6), 0.997e18); // 30 bps off
         pool.setTwap(2e18);
-        assertEq(router.referenceTonnes(creditA, 22e6), 2e18);
+        assertEq(router.referenceTonnes(creditA, 22e6), 1.994e18);
         pool.setSpot(0.1e18); // the spot plays no part
-        assertEq(router.referenceTonnes(creditA, 22e6), 2e18);
+        assertEq(router.referenceTonnes(creditA, 22e6), 1.994e18);
     }
 
     // ---- the project's own dollars ---------------------------------------------------------------------------------
 
-    function test_aPartialAbsorptionStaysWithTheProject() public {
+    function test_aVaultThatAbsorbsOnlyPartLeavesTheRestWithTheDepositor() public {
         reg.register("Other", REGEN, makeAddr("other-safe"));
         address other = makeAddr("other-depositor");
         vm.deal(other, 1 ether);
-        agg.setCredit(creditA, 0.5e18); // credit A can take 0.5 t of the 1.125 t batch
+        agg.setCredit(creditA, 0.5e18); // the vault holds 0.5 t of credit A; the quote still says 1.125 t
         _deposit(0.01 ether);
         router.process(1, depositor);
         assertEq(agg.lastCredit(), creditA);
         assertEq(agg.lastTonnes(), 0.5e18);
-        assertEq(router.usdcOf(1), 24.75e6 - 11e6);
+        assertEq(agg.supply(creditA), 0);
+        assertEq(router.usdcOf(1, depositor), 24.75e6 - 11e6);
         // another project's batch retires only its own dollars
         vm.prank(other);
         router.deposit{value: 0.01 ether}(2);
@@ -739,14 +902,24 @@ contract RegenRouterTest is Test {
         assertEq(agg.lastCredit(), creditB);
         assertEq(agg.lastTonnes(), 1.125e18);
         assertEq(router.retiredOf(2), 1.125e18);
-        assertEq(router.usdcOf(1), 13.75e6);
-        assertEq(router.usdcOf(2), 0);
-        // the project's next batch spends its remainder, from the next credit
+        assertEq(router.usdcOf(1, depositor), 13.75e6);
+        assertEq(router.usdcOf(2, other), 0);
+        // a 1-wei depositor of the same project cannot retire that remainder under its own name
+        address stranger = makeAddr("stranger");
+        vm.deal(stranger, 1);
+        vm.prank(stranger);
+        router.deposit{value: 1}(1);
+        vm.expectEmit(true, true, false, true);
+        emit RegenRouter.Skipped(1, stranger, "classEmpty");
+        router.process(1, stranger);
+        assertEq(router.usdcOf(1, depositor), 13.75e6);
+        // the depositor's next batch spends its remainder, from the next credit
         _deposit(0.01 ether);
+        _later();
         router.process(1, depositor);
         assertEq(agg.lastCredit(), creditB);
         assertEq(agg.lastTonnes(), 1.75e18); // (13.75 + 24.75) / 22
-        assertEq(router.usdcOf(1), 0);
+        assertEq(router.usdcOf(1, depositor), 0);
         assertEq(router.retiredOf(1), 2.25e18);
         assertEq(usdc.balanceOf(address(router)), 0);
     }
@@ -757,11 +930,12 @@ contract RegenRouterTest is Test {
         agg.setCredit(creditC, 0);
         _deposit(0.01 ether);
         router.process(1, depositor);
-        assertEq(router.usdcOf(1), 13.75e6);
+        assertEq(router.usdcOf(1, depositor), 13.75e6);
         agg.setCredit(creditB, 1000e18);
         _deposit(0.0001 ether); // a sliver of ETH is enough to carry the remainder into a retirement
+        _later();
         router.process(1, depositor);
-        assertLt(router.usdcOf(1), 23); // rounding only
+        assertLt(router.usdcOf(1, depositor), 23); // rounding only
         assertEq(agg.lastTonnes(), 0.636363e18); // (13.75 + 0.25) / 22, floored
     }
 
@@ -771,7 +945,7 @@ contract RegenRouterTest is Test {
         router.process(1, depositor);
         assertEq(agg.lastTonnes(), 1.125e18);
         assertEq(usdc.balanceOf(address(router)), 1000e6);
-        assertEq(router.usdcOf(1), 0);
+        assertEq(router.usdcOf(1, depositor), 0);
     }
 
     // ---- bounty ----------------------------------------------------------------------------------------------------
@@ -784,7 +958,8 @@ contract RegenRouterTest is Test {
         caller.run(router, 1, depositor);
         assertEq(router.balanceOf(1, depositor), 0.0001 ether);
         assertEq(address(router).balance, 0.0001 ether);
-        // the forfeited slice is under minBatch; anyone retires it, for no bounty
+        // the forfeited slice is under minBatch; anyone retires it, for no bounty, after the interval
+        _later();
         vm.prank(keeper);
         router.process(1, depositor);
         assertEq(router.balanceOf(1, depositor), 0);
@@ -851,6 +1026,14 @@ contract RegenRouterTest is Test {
         vm.expectRevert(RegenRouter.BadParameter.selector);
         new RegenRouter(c);
         c = _config(1, 2, 100, 9700);
+        c.maxUsdcPerTonne = 0;
+        vm.expectRevert(RegenRouter.BadParameter.selector);
+        new RegenRouter(c);
+        c = _config(1, 2, 100, 9700);
+        c.processInterval = 0;
+        vm.expectRevert(RegenRouter.BadParameter.selector);
+        new RegenRouter(c);
+        c = _config(1, 2, 100, 9700);
         c.kvcmPool = new MockPool(address(kvcm), makeAddr("not-usdc")); // a pool of some other pair
         vm.expectRevert(RegenRouter.BadParameter.selector);
         new RegenRouter(c);
@@ -882,6 +1065,7 @@ contract RegenRouterTest is Test {
             uint256 ethIn = bal > 0.02 ether ? 0.02 ether : bal;
             uint256 bounty = ethIn >= 0.001 ether ? ethIn * 100 / 10_000 : 0;
             uint256 before = keeper.balance;
+            _later();
             vm.prank(keeper);
             router.process(1, depositor);
             if (router.balanceOf(1, depositor) == bal) break; // skipped: a sliver too small to retire a step

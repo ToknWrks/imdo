@@ -13,10 +13,11 @@ pragma solidity 0.8.26;
 ///      reader of the retirement log. Uniqueness is judged on the name's KEY (`nameKey`: ASCII lower-cased, runs of
 ///      spaces collapsed to one), so "imdo", "Imdo" and "IM  DO" are the same name as "IMDO"; the name is stored and
 ///      written into retirements exactly as registered. No owner, no update, no delete: a project's name is taken for
-///      good by whoever registers it first, so a project registers in the same transaction as the registry (the rail's
-///      deploy script does) or right after it, and checks its regen address before sending. The checksum is verified on
-///      chain, so a mistyped address cannot be registered; an address that is valid but not the project's own still can,
-///      and would then carry every retirement for that id (nothing can correct it).
+///      good by whoever registers it first, so the FIRST project is registered by the constructor, in the registry's
+///      own creation transaction (the rail's deploy script does this; nobody can get in between), and checks its regen
+///      address before sending. The checksum is verified on chain, so a mistyped address cannot be registered; an
+///      address that is valid but not the project's own still can, and would then carry every retirement for that id
+///      (nothing can correct it).
 contract RegenRegistry {
     struct Project {
         address beneficiary;
@@ -49,9 +50,21 @@ contract RegenRegistry {
         uint256 indexed id, address indexed beneficiary, string name, string regenAddress, address registrant
     );
 
+    /// @param name The first project, registered as id 1 in this very transaction; empty = none.
+    constructor(string memory name, string memory regenAddress, address beneficiary) {
+        if (bytes(name).length != 0) _register(name, regenAddress, beneficiary);
+    }
+
     /// @notice Register a project. Returns its id (1-based); id 0 is never a project.
     function register(string calldata name, string calldata regenAddress, address beneficiary)
         external
+        returns (uint256 id)
+    {
+        return _register(name, regenAddress, beneficiary);
+    }
+
+    function _register(string memory name, string memory regenAddress, address beneficiary)
+        private
         returns (uint256 id)
     {
         if (beneficiary == address(0)) revert ZeroAddress();
@@ -126,7 +139,9 @@ contract RegenRegistry {
             chk = _polymodStep(chk) ^ (uint8(s[i]) & 31);
         }
         for (uint256 i = 6; i < 44; ++i) {
-            uint8 v = uint8(CHARSET_VALUE[uint8(s[i])]);
+            uint8 c = uint8(s[i]);
+            if (c >= 0x80) return false;
+            uint8 v = uint8(CHARSET_VALUE[c]);
             if (v == 0xff) return false;
             chk = _polymodStep(chk) ^ v;
         }

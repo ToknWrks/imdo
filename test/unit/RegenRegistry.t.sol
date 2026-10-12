@@ -12,7 +12,31 @@ contract RegenRegistryTest is Test {
     address internal beneficiary = makeAddr("imdo-safe");
 
     function setUp() public {
-        reg = new RegenRegistry();
+        reg = new RegenRegistry("", "", address(0));
+    }
+
+    function test_theFirstProjectCanBeRegisteredAtCreation() public {
+        vm.expectEmit(true, true, false, true);
+        emit RegenRegistry.ProjectRegistered(1, beneficiary, "IMDO", REGEN, address(this));
+        RegenRegistry r = new RegenRegistry("IMDO", REGEN, beneficiary);
+        assertEq(r.count(), 1);
+        assertEq(r.project(1).name, "IMDO");
+        assertEq(r.register("Second", REGEN2, beneficiary), 2);
+        vm.expectRevert(RegenRegistry.BadRegenAddress.selector);
+        new RegenRegistry("IMDO", "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvaq", beneficiary);
+        vm.expectRevert(RegenRegistry.ZeroAddress.selector);
+        new RegenRegistry("IMDO", REGEN, address(0));
+        assertEq(reg.count(), 0); // an empty name registers nothing
+    }
+
+    function test_aHighByteIsRefusedNotAPanic() public view {
+        bytes memory s = bytes(REGEN);
+        s[20] = 0xC3; // a UTF-8 lead byte pasted into the address
+        assertFalse(reg.validRegenAddress(s));
+        s[20] = 0x7F; // DEL
+        assertFalse(reg.validRegenAddress(s));
+        s[20] = 0xFF;
+        assertFalse(reg.validRegenAddress(s));
     }
 
     function test_registerStoresEverythingAndNumbersFromOne() public {

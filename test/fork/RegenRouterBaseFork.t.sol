@@ -11,14 +11,17 @@ import {IKlimaRetirementAggregator} from "../../src/regen/interfaces/IKlimaRetir
 import {IEthToTokenSwap, IPriceFeed} from "../../src/regen/interfaces/IEthToTokenSwap.sol";
 import {IAerodromePool} from "../../src/regen/interfaces/IAerodromePool.sol";
 
-/// @dev The pool's swap surface, for the attacker.
+/// @dev The pool's swap and sync surface, for the attacker.
 interface IAerodromePoolSwap {
     function getAmountOut(uint256 amountIn, address tokenIn) external view returns (uint256);
     function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external;
+    function sync() external;
 }
 
 /// @notice Base mainnet fork. Real Klima aggregator, real Uniswap V3 USDC/WETH, real Chainlink, real Aerodrome
-///         USDC/kVCM pool. Explicit fork profile; `BASE_RPC_URL` overrides the public RPC.
+///         USDC/kVCM pool. Explicit fork profile; `BASE_RPC_URL` overrides the public RPC. Most tests pin block
+///         52,335,751; the honest-batch test pins a block where the spot sits inside the 24-hour bar (at the first
+///         block it is 9% under the day's average, which is exactly a skip).
 contract RegenRouterBaseForkTest is Test {
     address constant AGG = 0xdA0A793D7C32AB80bcdab7F8c725c96DB22464f4;
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
@@ -33,6 +36,8 @@ contract RegenRouterBaseForkTest is Test {
     address constant C003 = 0x3D1bf942619cB9FC71543721Ef3D5496FAf283B8;
     address constant C006 = 0xb77A0be47A686c525a38fbb10c0D424929471d7D;
     string constant REGEN = "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan";
+    uint256 constant PINNED = 52_335_751;
+    uint256 constant CALM = 52_487_479; // spot 2.7% under the 24h average
 
     RegenRegistry reg;
     RegenRouter router;
@@ -41,9 +46,12 @@ contract RegenRouterBaseForkTest is Test {
     address pot = 0x55bEb053c003F98c1059F2a497132CBA72104a03;
 
     function setUp() public {
-        vm.createSelectFork(vm.envOr("BASE_RPC_URL", string("https://mainnet.base.org")), 52_335_751);
-        reg = new RegenRegistry();
-        reg.register("IMDO", REGEN, beneficiary);
+        _fork(PINNED);
+    }
+
+    function _fork(uint256 blockNumber) internal {
+        vm.createSelectFork(vm.envOr("BASE_RPC_URL", string("https://mainnet.base.org")), blockNumber);
+        reg = new RegenRegistry("IMDO", REGEN, beneficiary);
         router = new RegenRouter(
             RegenRouter.Config({
                 registry: reg,
@@ -63,14 +71,17 @@ contract RegenRouterBaseForkTest is Test {
                 maxBatch: 0.05 ether,
                 bountyBps: 100,
                 minOutBps: 9700,
-                twapGranularity: 4,
-                minTonnesBps: 9700
+                twapGranularity: 48,
+                minTonnesBps: 9500,
+                maxUsdcPerTonne: 45e6,
+                processInterval: 7200
             })
         );
         vm.deal(pot, 1 ether);
     }
 
     function test_realRetirementEndToEnd() public {
+        _fork(CALM);
         vm.prank(pot);
         router.deposit{value: 0.01 ether}(1);
 
@@ -84,8 +95,9 @@ contract RegenRouterBaseForkTest is Test {
         assertEq(router.retiredOf(1) % 1e12, 0);
         assertEq(keeper.balance, 0.0001 ether);
         assertEq(address(router).balance, 0);
-        assertEq(router.usdcOf(1), IERC20(USDC).balanceOf(address(router)));
-        assertLt(router.usdcOf(1), 100); // sub-step rounding only
+        assertEq(router.usdcOf(1, pot), IERC20(USDC).balanceOf(address(router)));
+        assertLt(router.usdcOf(1, pot), 100); // sub-step rounding only
+        assertEq(router.lastRetiredAt(1, pot), block.timestamp);
 
         // the aggregator's own event must carry our beneficiary, name and message byte for byte
         bytes32 topic0 = 0x6fc64daccb3e984a15ddc33e89be48bb68d451d2b125e3c84fe8aa218018ab9c;
@@ -115,31 +127,33 @@ contract RegenRouterBaseForkTest is Test {
     }
 
     function test_aFullBatchRetiresAtLeastTheTimeWeightedBar() public {
+        _fork(CALM);
         vm.prank(pot);
         router.deposit{value: 0.05 ether}(1);
+        RegenRouter.Plan memory p = router.plan(125e6);
+        assertEq(p.credit, C004);
         vm.prank(keeper);
         router.process(1, pot);
-        uint256 spent = 125e6; // about what 0.0495 ETH bought at the fork block; the bar scales with the spend
-        uint256 bar = router.referenceTonnes(C004, spent);
+        uint256 bar = router.referenceTonnes(C004, p.spend);
         emit log_named_uint("retired (1e18)", router.retiredOf(1));
-        emit log_named_uint("bar for 125 USDC (1e18)", bar);
-        assertGt(router.retiredOf(1), bar * 9700 / 10_000 * 9 / 10); // the real spend is near, not exactly, 125 USDC
+        emit log_named_uint("bar (1e18)", bar);
+        emit log_named_uint("usdc per tonne", p.spend * 1e18 / p.tonnes);
+        assertGe(router.retiredOf(1), bar * 9500 / 10_000);
+        assertLe(p.spend * 1e18 / p.tonnes, 45e6);
+    }
+
+    function test_aSpotFarUnderTheDaysAverageIsASkipNotALoss() public view {
+        // at the pinned block the pool had moved 9% in the day: the honest batch waits for the average
+        RegenRouter.Plan memory p = router.plan(125e6);
+        assertEq(p.credit, address(0));
+        assertEq(p.reason, bytes32("priceOff"));
     }
 
     function test_aPumpedKvcmPoolIsSkipped() public {
         vm.prank(pot);
         router.deposit{value: 0.05 ether}(1);
-
-        // the keeper buys kVCM first, in the same transaction it would process in
         address attacker = makeAddr("attacker");
-        deal(USDC, attacker, 8_000e6);
-        vm.startPrank(attacker);
-        IERC20(USDC).transfer(KVCM_POOL, 8_000e6);
-        uint256 out = IAerodromePoolSwap(KVCM_POOL).getAmountOut(8_000e6, USDC);
-        IAerodromePoolSwap(KVCM_POOL).swap(out, 0, attacker, ""); // kVCM is token0
-        vm.stopPrank();
-        emit log_named_uint("kVCM bought with 8,000 USDC (1e18)", out);
-
+        _pump(attacker, 8_000e6);
         vm.expectEmit(true, true, false, true);
         emit RegenRouter.Skipped(1, pot, "priceOff");
         vm.prank(attacker);
@@ -149,7 +163,49 @@ contract RegenRouterBaseForkTest is Test {
         assertEq(router.retiredOf(1), 0);
     }
 
+    /// @dev Round-2 high: a price held across the whole window, with the pool's observations written by free
+    ///      `sync()` calls, becomes the average. The ceiling is what still refuses it.
+    function test_aPumpHeldAcrossTheWholeWindowHitsTheCeiling() public {
+        _fork(CALM);
+        vm.prank(pot);
+        router.deposit{value: 0.05 ether}(1);
+        address attacker = makeAddr("attacker");
+        _pump(attacker, 8_000e6); // about 2.3x the price: ~49 USDC per tonne
+        uint256 t = block.timestamp;
+        for (uint256 i; i < 50; ++i) {
+            t += 1801; // vm.warp(block.timestamp + x) only takes once on a fork: drive the clock from a local
+            vm.warp(t);
+            IAerodromePoolSwap(KVCM_POOL).sync();
+        }
+        // the relative bar now follows the held price: what 125 USDC buys at spot clears 95% of the day's average
+        (uint256 tonnes,,,,) =
+            IKlimaRetirementAggregator(AGG).quoteRetireCreditForInputTokenInViaKlima(C004, 0, 125e6, USDC, VAULT, 0);
+        tonnes = tonnes / 1e12 * 1e12;
+        (, uint256 spend,,) = IKlimaRetirementAggregator(AGG).quoteRetireCreditViaKlima(C004, 0, tonnes, USDC, VAULT, 0);
+        uint256 bar = router.referenceTonnes(C004, spend);
+        emit log_named_uint("usdc per tonne after the hold", spend * 1e18 / tonnes);
+        emit log_named_uint("tonnes offered (1e18)", tonnes);
+        emit log_named_uint("bar after the hold (1e18)", bar);
+        assertGe(tonnes, bar * 9500 / 10_000, "the relative bar alone would have let it through");
+        // ...and the ceiling is what refuses it; the feed is a day old by now, so the refusal is read off the plan
+        assertGt(spend * 1e18 / tonnes, 45e6);
+        RegenRouter.Plan memory p = router.plan(125e6);
+        assertEq(p.credit, address(0));
+        assertEq(p.reason, bytes32("priceOff"));
+        assertEq(router.retiredOf(1), 0);
+    }
+
+    function test_oneBatchPerDepositorPerInterval() public {
+        _fork(CALM);
+        vm.prank(pot);
+        router.deposit{value: 0.2 ether}(1);
+        router.process(1, pot);
+        vm.expectRevert(abi.encodeWithSelector(RegenRouter.TooSoon.selector, block.timestamp + 7200));
+        router.process(1, pot);
+    }
+
     function test_bridgedPathThroughAReceiver() public {
+        _fork(CALM);
         RegenReceiverFactory f = new RegenReceiverFactory(router);
         address rcv = f.predict(1);
         vm.deal(rcv, 0.02 ether); // what the canonical bridge does
@@ -157,5 +213,15 @@ contract RegenRouterBaseForkTest is Test {
         RegenReceiver(payable(rcv)).forward();
         router.process(1, rcv);
         assertGt(router.retiredOf(1), 0);
+    }
+
+    function _pump(address attacker, uint256 usdcIn) internal {
+        deal(USDC, attacker, usdcIn);
+        vm.startPrank(attacker);
+        IERC20(USDC).transfer(KVCM_POOL, usdcIn);
+        uint256 out = IAerodromePoolSwap(KVCM_POOL).getAmountOut(usdcIn, USDC);
+        IAerodromePoolSwap(KVCM_POOL).swap(out, 0, attacker, ""); // kVCM is token0
+        vm.stopPrank();
+        emit log_named_uint("kVCM bought (1e18)", out);
     }
 }
