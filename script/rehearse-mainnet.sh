@@ -5,7 +5,13 @@
 # Opening tick 177540 = $50,018 market cap at ETH $2,565.71 (2026-10-07); recompute on the day: tick = round(ln(ETHUSD / 0.00005) / ln(1.0001) / 60) * 60.
 DEPLOYER=0xe478dCc55af363132C0cBe7F52262Fbf2Ed24768
 OPS=0x357baE4F23F7C4494aa107DfcDB337E7892344ec
-OFFSETS=0xb41E9b474D5b6f9d41D76Bcf3129Ea9a4E5011cf
+# Offsets seat: EITHER the Safe (OFFSETS set, RECEIVER_ON_BASE zero) OR the Regen rail's forwarder (OFFSETS zero,
+# RECEIVER_ON_BASE = the receiver DeployRegenRail deployed on Base). The rail is the intended seat (docs/REGEN_RAIL.md);
+# set it once the Base side is deployed. The rehearsal below still seats the Safe until then.
+OFFSETS=${OFFSETS:-0xb41E9b474D5b6f9d41D76Bcf3129Ea9a4E5011cf}
+RECEIVER_ON_BASE=${RECEIVER_ON_BASE:-0x0000000000000000000000000000000000000000}
+L1_BRIDGE=0x3154Cf16ccdb4C6d922629664174b904d80F2C35
+MIN_GAS_LIMIT=200000
 REGEN=0xb41E9b474D5b6f9d41D76Bcf3129Ea9a4E5011cf
 HOOK_OWNER=0x5966CA0df8b753D8458162867f3435fa6E49222E
 POOL_MANAGER=0x000000000004444c5dc75cB358380D2e3dE08A90
@@ -21,6 +27,6 @@ LAUNCH=${LAUNCH:-1791385766}
 RPC=${RPC:-https://ethereum-rpc.publicnode.com}
 cd "$(dirname "$0")/.." || exit 1
 exec forge script script/DeployImdo.s.sol:DeployImdo \
-  --sig 'run((uint256,address,address,address,address,address,address,address,address,address,address,address,address,int24,bytes32,uint256))' \
-  "(1,$DEPLOYER,$OPS,$OFFSETS,$REGEN,$HOOK_OWNER,$POOL_MANAGER,$POSITION_MANAGER,$PERMIT2,$CREATE2,$IMD,$IMD_HOOKS,$SEAT_NFT,$TICK,$HOLDER_ROOT,$LAUNCH)" \
+  --sig 'run((uint256,address,address,address,address,address,address,address,address,address,address,address,address,int24,bytes32,uint256,address,address,uint32))' \
+  "(1,$DEPLOYER,$OPS,$OFFSETS,$REGEN,$HOOK_OWNER,$POOL_MANAGER,$POSITION_MANAGER,$PERMIT2,$CREATE2,$IMD,$IMD_HOOKS,$SEAT_NFT,$TICK,$HOLDER_ROOT,$LAUNCH,$L1_BRIDGE,$RECEIVER_ON_BASE,$MIN_GAS_LIMIT)" \
   --rpc-url "$RPC" --sender "$DEPLOYER" -vvv "$@"

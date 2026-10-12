@@ -19,6 +19,7 @@ import {ImdoStaking} from "../src/ImdoStaking.sol";
 import {ImdoClaim} from "../src/ImdoClaim.sol";
 import {ImdoTreasury} from "../src/ImdoTreasury.sol";
 import {ImdoHook} from "../src/ImdoHook.sol";
+import {OffsetsForwarder, IOffsetsSource, IL1StandardBridge} from "../src/regen/OffsetsForwarder.sol";
 import {HookMiner} from "./utils/HookMiner.sol";
 
 interface IPermit2View {
@@ -26,6 +27,12 @@ interface IPermit2View {
 }
 
 /// @notice Manual signer deployment. All configuration arrives as arguments; no keys or environment reads.
+/// @dev The treasury's Offsets seat is EITHER a Safe (`offsetsSafe`) OR the Regen rail's `OffsetsForwarder`
+///      (`receiverOnBase` set, `offsetsSafe` zero): exactly one. The treasury and the forwarder name each other in
+///      immutables, so the forwarder's address is predicted from the deployer's next nonce, the treasury is created
+///      with it, and the forwarder is created in the very next transaction; the script checks the pair. The receiver
+///      on Base must already be registered and deployed by the rail's own script (`DeployRegenRail`): a predicted
+///      receiver for an id nobody has registered yet could be claimed by whoever registers that id first.
 contract DeployImdo is Script {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -40,6 +47,9 @@ contract DeployImdo is Script {
     uint256 public constant MIN_LAUNCH_LEAD = 1 hours;
     /// @dev A launch too far ahead would lock the claim funding (and the seat tranches) for that long; reject it.
     uint256 public constant MAX_LAUNCH_LEAD = 30 days;
+    /// @dev The forwarder's own bounds on the bridge gas limit, checked here before any creation.
+    uint32 public constant MIN_FORWARD_GAS = 100_000;
+    uint32 public constant MAX_FORWARD_GAS = 1_000_000;
 
     struct Config {
         uint256 chainId;
@@ -58,6 +68,9 @@ contract DeployImdo is Script {
         int24 openingTick;
         bytes32 holderRoot;
         uint256 launch;
+        address l1Bridge;
+        address receiverOnBase;
+        uint32 minGasLimit;
     }
 
     struct Deployment {
@@ -65,6 +78,7 @@ contract DeployImdo is Script {
         ImdoStaking staking;
         ImdoClaim claim;
         ImdoTreasury treasury;
+        OffsetsForwarder forwarder;
         ImdoHook hook;
         bytes32 hookSalt;
         PoolKey key;
@@ -93,10 +107,17 @@ contract DeployImdo is Script {
         d.staking = new ImdoStaking(address(d.token), c.imd, c.poolManager, expectedClaim, c.regenSafe);
         d.claim = new ImdoClaim(address(d.token), address(d.staking), c.seatNFT, SEAT_SIZE, c.holderRoot, c.launch);
         if (address(d.claim) != expectedClaim) revert InvalidConfiguration();
+        // The forwarder seat: predicted the same way, created right after the treasury.
+        address offsets = c.offsetsSafe;
+        address expectedForwarder;
+        if (c.receiverOnBase != address(0)) {
+            expectedForwarder = vm.computeCreateAddress(c.deployer, vm.getNonce(c.deployer) + 1);
+            offsets = expectedForwarder;
+        }
         d.treasury = new ImdoTreasury(
             address(d.staking),
             c.opsWallet,
-            c.offsetsSafe,
+            offsets,
             c.regenSafe,
             c.poolManager,
             c.imd,
@@ -110,6 +131,14 @@ contract DeployImdo is Script {
             0.05 ether,
             5 ether
         );
+        if (c.receiverOnBase != address(0)) {
+            d.forwarder = new OffsetsForwarder(
+                IOffsetsSource(address(d.treasury)), IL1StandardBridge(c.l1Bridge), c.receiverOnBase, c.minGasLimit
+            );
+            if (address(d.forwarder) != expectedForwarder || d.treasury.offsetsSafe() != address(d.forwarder)) {
+                revert InvalidConfiguration();
+            }
+        }
         bytes memory args = abi.encode(c.poolManager, address(d.token), address(d.treasury), c.deployer);
         (address expectedHook, bytes32 salt) =
             HookMiner.find(c.create2Deployer, hookFlags(), type(ImdoHook).creationCode, args);
@@ -147,12 +176,16 @@ contract DeployImdo is Script {
     }
 
     function preflight(Config memory c) public view {
+        if ((c.offsetsSafe == address(0)) == (c.receiverOnBase == address(0))) revert InvalidConfiguration();
+        if (
+            c.receiverOnBase != address(0)
+                && (c.l1Bridge.code.length == 0 || c.minGasLimit < MIN_FORWARD_GAS || c.minGasLimit > MAX_FORWARD_GAS)
+        ) revert InvalidConfiguration();
         if (
             c.chainId != block.chainid || c.deployer == address(0) || c.opsWallet == address(0)
-                || c.offsetsSafe == address(0) || c.regenSafe == address(0) || c.hookOwner == address(0)
-                || c.create2Deployer == address(0) || c.poolManager.code.length == 0
-                || c.positionManager.code.length == 0 || c.permit2.code.length == 0 || c.imd.code.length == 0
-                || c.seatNFT.code.length == 0 || c.launch < block.timestamp + MIN_LAUNCH_LEAD
+                || c.regenSafe == address(0) || c.hookOwner == address(0) || c.create2Deployer == address(0)
+                || c.poolManager.code.length == 0 || c.positionManager.code.length == 0 || c.permit2.code.length == 0
+                || c.imd.code.length == 0 || c.seatNFT.code.length == 0 || c.launch < block.timestamp + MIN_LAUNCH_LEAD
                 || c.launch > block.timestamp + MAX_LAUNCH_LEAD
         ) revert InvalidConfiguration();
         if (

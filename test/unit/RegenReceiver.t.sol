@@ -167,4 +167,25 @@ contract OffsetsForwarderTest is Test {
         vm.expectRevert(OffsetsForwarder.ZeroAddress.selector);
         new OffsetsForwarder(treasury, bridge, address(0), 1);
     }
+
+    function test_constructorRefusesATreasuryOrBridgeWithNoCode() public {
+        address eoa = makeAddr("mispredicted-treasury");
+        vm.expectRevert(abi.encodeWithSelector(OffsetsForwarder.NoCode.selector, eoa));
+        new OffsetsForwarder(IOffsetsSource(eoa), bridge, receiver, 100_000);
+        vm.expectRevert(abi.encodeWithSelector(OffsetsForwarder.NoCode.selector, eoa));
+        new OffsetsForwarder(treasury, IL1StandardBridge(eoa), receiver, 100_000);
+    }
+
+    function test_constructorBoundsTheGasLimit() public {
+        vm.expectRevert(abi.encodeWithSelector(OffsetsForwarder.BadGasLimit.selector, uint32(0)));
+        new OffsetsForwarder(treasury, bridge, receiver, 0);
+        vm.expectRevert(abi.encodeWithSelector(OffsetsForwarder.BadGasLimit.selector, uint32(99_999)));
+        new OffsetsForwarder(treasury, bridge, receiver, 99_999);
+        vm.expectRevert(abi.encodeWithSelector(OffsetsForwarder.BadGasLimit.selector, uint32(1_000_001)));
+        new OffsetsForwarder(treasury, bridge, receiver, 1_000_001);
+        vm.expectRevert(abi.encodeWithSelector(OffsetsForwarder.BadGasLimit.selector, type(uint32).max));
+        new OffsetsForwarder(treasury, bridge, receiver, type(uint32).max);
+        assertEq(new OffsetsForwarder(treasury, bridge, receiver, 100_000).minGasLimit(), 100_000);
+        assertEq(new OffsetsForwarder(treasury, bridge, receiver, 1_000_000).minGasLimit(), 1_000_000);
+    }
 }

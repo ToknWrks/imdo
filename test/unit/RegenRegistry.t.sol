@@ -7,6 +7,8 @@ import {RegenRegistry} from "../../src/regen/RegenRegistry.sol";
 contract RegenRegistryTest is Test {
     RegenRegistry internal reg;
     string internal constant REGEN = "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan";
+    /// @dev Another address with a valid checksum, made for the test (data 0,7,14,…).
+    string internal constant REGEN2 = "regen1r23clxd5mzfsh79vn6pg0kaytjeq8w4usu4zh8";
     address internal beneficiary = makeAddr("imdo-safe");
 
     function setUp() public {
@@ -26,8 +28,8 @@ contract RegenRegistryTest is Test {
         assertTrue(reg.exists(1));
         assertFalse(reg.exists(0));
         assertFalse(reg.exists(2));
-        assertEq(reg.idByName(keccak256("IMDO")), 1);
-        assertEq(reg.register("Second", REGEN, beneficiary), 2);
+        assertEq(reg.idByName(reg.nameKey("IMDO")), 1);
+        assertEq(reg.register("Second", REGEN2, beneficiary), 2);
     }
 
     function test_unknownProjectReverts() public {
@@ -35,11 +37,30 @@ contract RegenRegistryTest is Test {
         reg.project(1);
     }
 
-    function test_nameIsUniqueCaseSensitive() public {
-        reg.register("IMDO", REGEN, beneficiary);
+    function test_nameIsUniqueOnItsKey() public {
+        reg.register("IM DO", REGEN, beneficiary);
         vm.expectRevert(abi.encodeWithSelector(RegenRegistry.NameTaken.selector, 1));
-        reg.register("IMDO", REGEN, address(0xBEEF));
-        assertEq(reg.register("imdo", REGEN, beneficiary), 2);
+        reg.register("IM DO", REGEN, address(0xBEEF));
+        vm.expectRevert(abi.encodeWithSelector(RegenRegistry.NameTaken.selector, 1));
+        reg.register("im do", REGEN, address(0xBEEF));
+        vm.expectRevert(abi.encodeWithSelector(RegenRegistry.NameTaken.selector, 1));
+        reg.register("Im  Do", REGEN, address(0xBEEF));
+        vm.expectRevert(abi.encodeWithSelector(RegenRegistry.NameTaken.selector, 1));
+        reg.register("IM    DO", REGEN, address(0xBEEF));
+        assertEq(reg.register("IMDO", REGEN, beneficiary), 2); // a different name
+        assertEq(reg.register("IM-DO", REGEN, beneficiary), 3);
+        assertEq(reg.project(1).name, "IM DO"); // stored as registered
+    }
+
+    function test_nameKeyLowersAndCollapsesSpacesOnly() public view {
+        assertEq(reg.nameKey("IMDO"), reg.nameKey("imdo"));
+        assertEq(reg.nameKey("IMDO"), reg.nameKey("Imdo"));
+        assertEq(reg.nameKey("Regen  City"), reg.nameKey("regen city"));
+        assertEq(reg.nameKey("a   b   c"), keccak256("a b c"));
+        assertEq(reg.nameKey("ABC xyz 09!"), keccak256("abc xyz 09!"));
+        assertTrue(reg.nameKey("IMDO") != reg.nameKey("IMD0"));
+        assertTrue(reg.nameKey("IMDO") != reg.nameKey("IM DO"));
+        assertTrue(reg.nameKey("IMDO (official)") != reg.nameKey("IMDO"));
     }
 
     function test_zeroBeneficiaryRefused() public {
@@ -72,6 +93,7 @@ contract RegenRegistryTest is Test {
 
     function test_regenAddressRules() public view {
         assertTrue(reg.validRegenAddress(bytes(REGEN)));
+        assertTrue(reg.validRegenAddress(bytes(REGEN2)));
         assertFalse(reg.validRegenAddress(bytes("regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnva"))); // 43
         assertFalse(reg.validRegenAddress(bytes("regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvann"))); // 45
         assertFalse(reg.validRegenAddress(bytes("cosmos83ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan"))); // prefix
@@ -81,13 +103,35 @@ contract RegenRegistryTest is Test {
         assertFalse(reg.validRegenAddress(bytes("regen1o3ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan"))); // 'o'
         assertFalse(reg.validRegenAddress(bytes("regen113ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan"))); // '1'
         assertFalse(reg.validRegenAddress(bytes("regen1 3ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan"))); // space
-        // the whole bech32 charset once, then 6 more: 6 + 32 + 6 = 44
-        assertTrue(reg.validRegenAddress(bytes("regen1qpzry9x8gf2tvdw0s3jn54khce6mua7lqpzry9")));
+        assertFalse(reg.validRegenAddress(bytes(unicode"regen1ö3ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan"))); // high byte
+    }
+
+    function test_checksumIsVerified() public view {
+        // the charset alone is not an address
+        assertFalse(reg.validRegenAddress(bytes("regen1qpzry9x8gf2tvdw0s3jn54khce6mua7lqpzry9")));
+        // one character wrong at the end
+        assertFalse(reg.validRegenAddress(bytes("regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvaq")));
+        // two characters swapped near the start
+        assertFalse(reg.validRegenAddress(bytes("regen138ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan")));
+        // the checksum of another address
+        assertFalse(reg.validRegenAddress(bytes("regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvu4zh8")));
     }
 
     function test_badRegenAddressReverts() public {
         vm.expectRevert(RegenRegistry.BadRegenAddress.selector);
         reg.register("IMDO", "regen1short", beneficiary);
+        vm.expectRevert(RegenRegistry.BadRegenAddress.selector);
+        reg.register("IMDO", "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvaq", beneficiary); // a typo
+    }
+
+    function testFuzz_aMutatedAddressNeverVerifies(uint8 at, uint8 to) public view {
+        at = uint8(bound(at, 6, 43));
+        bytes memory s = bytes(REGEN);
+        bytes memory cs = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+        bytes1 c = cs[to % 32];
+        vm.assume(c != s[at]);
+        s[at] = c;
+        assertFalse(reg.validRegenAddress(s));
     }
 
     function testFuzz_randomBytesNeverPassAsRegenAddressUnlessCharsetHolds(bytes memory s) public view {

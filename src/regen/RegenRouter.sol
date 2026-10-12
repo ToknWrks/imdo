@@ -12,28 +12,44 @@ import {
     UpdateLiquidSupplyRateLimiterParams
 } from "./interfaces/IKlimaRetirementAggregator.sol";
 import {IEthToTokenSwap, IPriceFeed} from "./interfaces/IEthToTokenSwap.sol";
+import {IAerodromePool} from "./interfaces/IAerodromePool.sol";
 import {IRegenRouterDeposit} from "./RegenReceiver.sol";
 
 /// @title RegenRouter
 /// @notice Holds ETH per registered project and depositor and, when anyone asks, turns a batch of it into retired Regen
 ///         City Forest credits on Klima's Retirement Aggregator with the project as beneficiary. No owner, no parameter
-///         can change, nothing leaves except as a retirement, the caller's bounty, or dollar dust held for the next
-///         batch.
+///         can change, nothing leaves except as a retirement, the caller's bounty, or the project's own dollar
+///         remainder held for its next batch.
 /// @dev Balances are kept per (project, depositor) so the retirement message can name where the ETH came from
 ///      (`src:8453:<depositor>`): the project's bridge receiver for a leg forwarded from Ethereum, a Safe for a direct
 ///      deposit. One `process(projectId, depositor)`:
-///        1. take min(balance, maxBatch); refuse under minBatch (dust is not worth the gas, and tiny batches are the
-///           cheapest way to grief the bounty);
-///        2. ask the aggregator what one dollar buys from each credit token, in fixed order; if none answers, emit
-///           `Skipped` and keep the ETH: the class is empty, nothing has moved. Same if the price feed is stale;
-///        3. swap the batch minus the bounty ETH → USDC. The caller supplies NO minimum: the router requires at least
-///           `minOutBps` of what Chainlink's ETH/USD answer says the batch is worth. The reference is an oracle, not a
-///           pool, so a sandwich cannot lower the bar, and it can never take more than (10000 − minOutBps) of a batch
-///           that is at most `maxBatch`. That ceiling, not a trusted keeper, is the protection;
-///        4. quote tonnes for all the USDC in hand, floor to six decimals of a tonne, retire paying USDC with
-///           `maxInputTokenIn` = what is held (the aggregator swaps USDC → kVCM itself and reverts if it would need
-///           more); the USDC left over stays here for the next batch;
-///        5. pay the caller the bounty, last. A caller that cannot take ETH forfeits it to the project.
+///        1. take min(balance, maxBatch). A batch of at least `minBatch` pays the caller `bountyBps`; a smaller
+///           remainder (what is left after the last full batch, or a forfeited bounty) is processed with no bounty,
+///           so nothing is ever stranded and tiny deposits cannot farm the bounty;
+///        2. read Chainlink ETH/USD; stale (or dated in the future) → emit `Skipped("feedStale")`, keep the ETH;
+///        3. plan the retirement before spending anything: for each credit token in fixed order, ask the aggregator
+///           what the batch's dollars (at least `minOutBps` of the oracle value, plus the project's remainder) would
+///           retire, and hold that against the bar in step 5. No credit plans → `Skipped("classEmpty")` or
+///           `Skipped("priceOff")`, ETH kept;
+///        4. swap the batch minus the bounty ETH → USDC. The caller supplies NO minimum: the router requires at least
+///           `minOutBps` of what Chainlink says the batch is worth. The reference is an oracle, not a pool, so a
+///           sandwich on the ETH/USDC pool cannot lower the bar and can take at most (10000 − minOutBps) of a batch;
+///        5. plan again with the dollars actually in hand (the project's remainder included) and retire from the first
+///           credit that plans and retires; a credit whose retirement reverts is passed over. Paying USDC, the
+///           aggregator buys kVCM at the SPOT reserves of one small Aerodrome pool, which the caller of this very
+///           function could move in the same transaction. So the tonnes a credit offers for the dollars it will take
+///           must be at least `minTonnesBps` of what those dollars buy at that pool's time-weighted price
+///           (`twapGranularity` observations, each at least 30 minutes apart) converted at the aggregator's own
+///           kVCM-per-tonne rate. A pumped pool fails that bar; the batch waits. What remains open is a price held
+///           away from the average for the whole window, which costs the mover the pool's fees and the arbitrage
+///           against them for that long, for at most (10000 − minTonnesBps) of a batch;
+///        6. the USDC the aggregator did not take (sub-step rounding, or a credit that could only absorb part of the
+///           batch) stays here AS THE PROJECT'S OWN remainder (`usdcOf`) and is spent on its next batch. It is never
+///           retired under another project's name;
+///        7. pay the caller the bounty, last. A caller that cannot take ETH forfeits it to the project.
+///      Trust that remains: the aggregator is an upgradeable diamond run by Klima; if it, the class vault, the credit
+///      tokens or its pool are retired or reconfigured, every batch skips and the ETH waits here with no other exit.
+///      One batch's USDC allowance is the most a misbehaving aggregator could take per call.
 ///      The retirement message is grammar v1, assembled from registry fields validated at registration. Tags are not
 ///      written by this version (the grammar reserves them).
 contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
@@ -48,6 +64,10 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
     IKlimaRetirementAggregator public immutable aggregator;
     /// @dev The dollar token the aggregator is paid in (USDC, 6 decimals); the aggregator pulls it from here.
     IERC20 public immutable usdc;
+    /// @dev Klima's carbon token (18 decimals), what the aggregator turns the dollars into before retiring.
+    IERC20 public immutable kvcm;
+    /// @dev The pool the aggregator buys kVCM in; its time-weighted quote is the reference for the second leg.
+    IAerodromePool public immutable kvcmPool;
     address public immutable classVault;
     address public immutable creditA;
     address public immutable creditB;
@@ -59,8 +79,14 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
     uint256 public immutable maxBatch;
     uint256 public immutable bountyBps;
     uint256 public immutable minOutBps;
+    /// @dev Observations the kVCM reference averages (each at least 30 minutes apart).
+    uint256 public immutable twapGranularity;
+    /// @dev Least share of the time-weighted tonnes a batch must retire.
+    uint256 public immutable minTonnesBps;
 
     mapping(uint256 projectId => mapping(address depositor => uint256)) public balanceOf;
+    /// @notice Dollars bought for a project and not yet retired (rounding, or a credit that absorbed only part).
+    mapping(uint256 projectId => uint256) public usdcOf;
     mapping(uint256 projectId => uint256) public retiredOf;
     uint256 public totalRetired;
 
@@ -68,7 +94,7 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
     error UnknownProject(uint256 projectId);
     error ZeroDeposit();
     error BadParameter();
-    error BelowMinBatch(uint256 balance, uint256 minBatch);
+    error NothingToProcess();
     error SwapShort(uint256 got, uint256 required);
     error NothingRetired();
     error DirectEthRefused();
@@ -92,6 +118,8 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         RegenRegistry registry;
         IKlimaRetirementAggregator aggregator;
         IERC20 usdc;
+        IERC20 kvcm;
+        IAerodromePool kvcmPool;
         address classVault;
         address creditA;
         address creditB;
@@ -103,21 +131,41 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         uint256 maxBatch;
         uint256 bountyBps;
         uint256 minOutBps;
+        uint256 twapGranularity;
+        uint256 minTonnesBps;
+    }
+
+    /// @dev One credit's offer for an amount of dollars, after every check; `credit` is zero when there is none and
+    ///      `reason` says why.
+    struct Plan {
+        address credit;
+        uint256 tonnes;
+        uint256 spend;
+        bytes32 reason;
     }
 
     constructor(Config memory c) {
         if (
             address(c.registry) == address(0) || address(c.aggregator) == address(0) || address(c.usdc) == address(0)
-                || c.classVault == address(0) || c.creditA == address(0) || c.creditB == address(0)
-                || c.creditC == address(0) || address(c.venue) == address(0) || address(c.ethUsd) == address(0)
+                || address(c.kvcm) == address(0) || address(c.kvcmPool) == address(0) || c.classVault == address(0)
+                || c.creditA == address(0) || c.creditB == address(0) || c.creditC == address(0)
+                || address(c.venue) == address(0) || address(c.ethUsd) == address(0)
         ) revert ZeroAddress();
         if (
             c.minBatch == 0 || c.maxBatch < c.minBatch || c.bountyBps >= BPS || c.minOutBps == 0 || c.minOutBps > BPS
-                || c.maxFeedAge == 0 || c.ethUsd.decimals() != 8
+                || c.maxFeedAge == 0 || c.ethUsd.decimals() != 8 || c.twapGranularity == 0 || c.minTonnesBps == 0
+                || c.minTonnesBps > BPS
         ) revert BadParameter();
+        address t0 = c.kvcmPool.token0();
+        address t1 = c.kvcmPool.token1();
+        if (!((t0 == address(c.usdc) && t1 == address(c.kvcm)) || (t0 == address(c.kvcm) && t1 == address(c.usdc)))) {
+            revert BadParameter();
+        }
         registry = c.registry;
         aggregator = c.aggregator;
         usdc = c.usdc;
+        kvcm = c.kvcm;
+        kvcmPool = c.kvcmPool;
         classVault = c.classVault;
         creditA = c.creditA;
         creditB = c.creditB;
@@ -129,6 +177,8 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         maxBatch = c.maxBatch;
         bountyBps = c.bountyBps;
         minOutBps = c.minOutBps;
+        twapGranularity = c.twapGranularity;
+        minTonnesBps = c.minTonnesBps;
     }
 
     /// @dev ETH must name a project. A plain transfer would belong to nobody.
@@ -148,58 +198,32 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
     }
 
     /// @notice Retire one batch of what `depositor` paid in for `projectId`. Anyone may call; the caller earns
-    ///         `bountyBps` of the batch.
+    ///         `bountyBps` of a batch of at least `minBatch`, nothing for a smaller remainder.
     function process(uint256 projectId, address depositor) external nonReentrant {
         RegenRegistry.Project memory p = registry.project(projectId);
         uint256 balance = balanceOf[projectId][depositor];
-        if (balance < minBatch) revert BelowMinBatch(balance, minBatch);
+        if (balance == 0) revert NothingToProcess();
         uint256 ethIn = balance > maxBatch ? maxBatch : balance;
+        uint256 bounty = ethIn >= minBatch ? ethIn * bountyBps / BPS : 0;
 
         uint256 price = _ethUsd();
         if (price == 0) {
             emit Skipped(projectId, depositor, "feedStale");
             return;
         }
-        address credit = _firstLiveCredit();
-        if (credit == address(0)) {
-            emit Skipped(projectId, depositor, "classEmpty");
+        uint256 carried = usdcOf[projectId];
+        Plan memory ahead = _plan(minUsdcOut(ethIn - bounty, price) + carried);
+        if (ahead.credit == address(0)) {
+            emit Skipped(projectId, depositor, ahead.reason);
             return;
         }
 
         balanceOf[projectId][depositor] = balance - ethIn;
-        uint256 bounty = ethIn * bountyBps / BPS;
         uint256 bought = _swap(ethIn - bounty, price);
+        uint256 held = carried + bought;
 
-        uint256 held = usdc.balanceOf(address(this));
-        (uint256 tonnes,,,,) =
-            aggregator.quoteRetireCreditForInputTokenInViaKlima(credit, 0, held, address(usdc), classVault, 0);
-        tonnes = tonnes / TONNE_STEP * TONNE_STEP;
-        if (tonnes == 0) revert NothingRetired();
-        usdc.forceApprove(address(aggregator), held);
-        aggregator.retireCreditViaKlima(
-            credit,
-            0,
-            0,
-            tonnes,
-            address(usdc),
-            classVault,
-            held,
-            0,
-            RetireDetails({
-                retiringAddress: address(this),
-                retiringEntityString: RETIRING_ENTITY,
-                beneficiaryAddress: p.beneficiary,
-                beneficiaryString: p.name,
-                retirementMessage: message(projectId, p, depositor),
-                beneficiaryLocation: "",
-                consumptionCountryCode: "",
-                consumptionPeriodStart: 0,
-                consumptionPeriodEnd: 0
-            })
-        );
-        usdc.forceApprove(address(aggregator), 0);
-        uint256 spent = held - usdc.balanceOf(address(this));
-
+        (address credit, uint256 tonnes, uint256 spent) = _retire(projectId, p, depositor, held);
+        usdcOf[projectId] = held - spent;
         retiredOf[projectId] += tonnes;
         totalRetired += tonnes;
         emit Processed(projectId, depositor, msg.sender, credit, ethIn, bounty, bought, spent, tonnes);
@@ -237,10 +261,28 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         return ethIn * price / 1e20 * minOutBps / BPS;
     }
 
+    /// @notice What `amount` USDC should retire from `credit` at the kVCM pool's time-weighted price: the pool's
+    ///         average quote for that many dollars, converted at the aggregator's own kVCM-per-tonne rate.
+    function referenceTonnes(address credit, uint256 amount) public view returns (uint256) {
+        uint256 kvcmRef = kvcmPool.quote(address(usdc), amount, twapGranularity);
+        (uint256 tonnes,,,,) =
+            aggregator.quoteRetireCreditForInputTokenInViaKlima(credit, 0, kvcmRef, address(kvcm), classVault, 0);
+        return tonnes;
+    }
+
+    /// @notice The offer of the first credit token (fixed order) that would retire for `amount` USDC right now, or
+    ///         an empty plan whose reason is "classEmpty" (no credit quotes a step of a tonne) or "priceOff" (a credit
+    ///         quotes, but under the time-weighted bar).
+    function plan(uint256 amount) external view returns (Plan memory) {
+        return _plan(amount);
+    }
+
     /// @dev Chainlink ETH/USD; 0 when stale or nonsense, which skips the batch rather than trusting a pool.
     function _ethUsd() private view returns (uint256) {
         (, int256 answer,, uint256 updatedAt,) = ethUsd.latestRoundData();
-        if (answer <= 0 || updatedAt == 0 || block.timestamp - updatedAt > maxFeedAge) return 0;
+        if (answer <= 0 || updatedAt == 0 || updatedAt > block.timestamp || block.timestamp - updatedAt > maxFeedAge) {
+            return 0;
+        }
         return uint256(answer);
     }
 
@@ -253,23 +295,102 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         if (bought < required) revert SwapShort(bought, required);
     }
 
-    /// @dev Fixed order; the first credit token the aggregator quotes a non-zero tonne for at one dollar.
-    function _firstLiveCredit() private view returns (address) {
+    function _plan(uint256 amount) private view returns (Plan memory none) {
         address[3] memory order = [creditA, creditB, creditC];
+        none.reason = "classEmpty";
         for (uint256 i; i < 3; ++i) {
-            try aggregator.quoteRetireCreditForInputTokenInViaKlima(
-                order[i], 0, 1e6, address(usdc), classVault, 0
-            ) returns (
-                uint256 tonnes,
-                uint256,
-                uint256,
-                DiscountedForwardBalanceContext memory,
-                UpdateLiquidSupplyRateLimiterParams memory
-            ) {
-                if (tonnes != 0) return order[i];
-            } catch {}
+            Plan memory offer = _offer(order[i], amount);
+            if (offer.credit != address(0)) return offer;
+            if (offer.reason == "priceOff") none.reason = offer.reason;
         }
-        return address(0);
+    }
+
+    /// @dev What `credit` would retire for `amount` USDC: the aggregator's quote floored to a step of a tonne, the
+    ///      dollars the aggregator will take for those tonnes (it rounds up: one step less if that overshoots), then
+    ///      the time-weighted bar. Any revert in the aggregator's or the pool's views counts against the credit.
+    function _offer(address credit, uint256 amount) private view returns (Plan memory p) {
+        p.reason = "classEmpty";
+        uint256 tonnes = _tonnesFor(credit, amount) / TONNE_STEP * TONNE_STEP;
+        if (tonnes == 0) return p;
+        uint256 spend = _usdcFor(credit, tonnes);
+        if (spend == 0 || spend > amount) {
+            tonnes -= TONNE_STEP;
+            if (tonnes == 0) return p;
+            spend = _usdcFor(credit, tonnes);
+            if (spend == 0 || spend > amount) return p;
+        }
+        p.reason = "priceOff";
+        try this.referenceTonnes(credit, spend) returns (uint256 bar) {
+            if (tonnes < bar * minTonnesBps / BPS) return p;
+        } catch {
+            return p;
+        }
+        return Plan({credit: credit, tonnes: tonnes, spend: spend, reason: ""});
+    }
+
+    function _tonnesFor(address credit, uint256 amount) private view returns (uint256) {
+        try aggregator.quoteRetireCreditForInputTokenInViaKlima(
+            credit, 0, amount, address(usdc), classVault, 0
+        ) returns (
+            uint256 tonnes,
+            uint256,
+            uint256,
+            DiscountedForwardBalanceContext memory,
+            UpdateLiquidSupplyRateLimiterParams memory
+        ) {
+            return tonnes;
+        } catch {
+            return 0;
+        }
+    }
+
+    /// @dev The USDC the aggregator asks for `tonnes` of `credit` (its `retirementPrice`); 0 when it cannot say.
+    function _usdcFor(address credit, uint256 tonnes) private view returns (uint256) {
+        try aggregator.quoteRetireCreditViaKlima(credit, 0, tonnes, address(usdc), classVault, 0) returns (
+            uint256,
+            uint256 retirementPrice,
+            DiscountedForwardBalanceContext memory,
+            UpdateLiquidSupplyRateLimiterParams memory
+        ) {
+            return retirementPrice;
+        } catch {
+            return 0;
+        }
+    }
+
+    /// @dev Retire from the first credit that plans for `held` and whose retirement goes through; a credit that
+    ///      reverts is passed over. None → revert, which also undoes the swap: the ETH stays credited.
+    function _retire(uint256 projectId, RegenRegistry.Project memory p, address depositor, uint256 held)
+        private
+        returns (address credit, uint256 tonnes, uint256 spent)
+    {
+        address[3] memory order = [creditA, creditB, creditC];
+        RetireDetails memory details = RetireDetails({
+            retiringAddress: address(this),
+            retiringEntityString: RETIRING_ENTITY,
+            beneficiaryAddress: p.beneficiary,
+            beneficiaryString: p.name,
+            retirementMessage: message(projectId, p, depositor),
+            beneficiaryLocation: "",
+            consumptionCountryCode: "",
+            consumptionPeriodStart: 0,
+            consumptionPeriodEnd: 0
+        });
+        for (uint256 i; i < 3; ++i) {
+            Plan memory offer = _offer(order[i], held);
+            if (offer.credit == address(0)) continue;
+            uint256 before = usdc.balanceOf(address(this));
+            usdc.forceApprove(address(aggregator), held);
+            try aggregator.retireCreditViaKlima(
+                offer.credit, 0, 0, offer.tonnes, address(usdc), classVault, held, 0, details
+            ) {
+                usdc.forceApprove(address(aggregator), 0);
+                return (offer.credit, offer.tonnes, before - usdc.balanceOf(address(this)));
+            } catch {
+                usdc.forceApprove(address(aggregator), 0);
+            }
+        }
+        revert NothingRetired();
     }
 
     function _uint(uint256 v) private pure returns (string memory) {

@@ -20,25 +20,29 @@ interface ISwapRouter02 {
 }
 
 /// @title UniswapV3Venue
-/// @notice Native ETH → one token through one Uniswap V3 pool (WETH/token at a fixed fee tier). Stateless; the router
-///         is the only intended caller but nothing stops anyone, since it holds nothing and delivers to `to`.
+/// @notice Native ETH → ONE token through one Uniswap V3 pool (WETH/token at a fixed fee tier), both fixed at
+///         construction. Stateless; the router is the only intended caller but nothing stops anyone, since it holds
+///         nothing and delivers to `to`.
 contract UniswapV3Venue is IEthToTokenSwap {
     ISwapRouter02 public immutable router;
     address public immutable weth;
+    address public immutable token;
     uint24 public immutable fee;
 
     error ZeroAddress();
     error WrongToken();
 
-    constructor(ISwapRouter02 router_, address weth_, uint24 fee_) {
-        if (address(router_) == address(0) || weth_ == address(0)) revert ZeroAddress();
+    constructor(ISwapRouter02 router_, address weth_, address token_, uint24 fee_) {
+        if (address(router_) == address(0) || weth_ == address(0) || token_ == address(0)) revert ZeroAddress();
+        if (token_ == weth_) revert WrongToken();
         router = router_;
         weth = weth_;
+        token = token_;
         fee = fee_;
     }
 
-    function swapEthToToken(address token, uint256 minOut, address to) external payable returns (uint256 tokenOut) {
-        if (token == weth) revert WrongToken();
+    function swapEthToToken(address token_, uint256 minOut, address to) external payable returns (uint256 tokenOut) {
+        if (token_ != token) revert WrongToken();
         tokenOut = router.exactInputSingle{value: msg.value}(
             ISwapRouter02.ExactInputSingleParams({
                 tokenIn: weth,

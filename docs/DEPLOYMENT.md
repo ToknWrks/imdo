@@ -9,7 +9,7 @@ The assignment performed no deployment. Use a fresh mainnet deployment for the c
 | chainId | `1` for Ethereum mainnet |
 | deployer | Explicit manual signer address |
 | opsWallet | Operations beneficiary selected by operator |
-| offsetsSafe | Safe responsible for ecological-credit retirement |
+| offsetsSafe | The Offsets seat when it is a Safe; ZERO when the Regen rail's forwarder is the seat (see `receiverOnBase`). Exactly one of the two |
 | regenSafe | Safe responsible for REGEN purchases and staker distributions |
 | hookOwner | Safe accepting the hook's two-step ownership transfer |
 | poolManager | `0x000000000004444c5dc75cB358380D2e3dE08A90` |
@@ -22,11 +22,14 @@ The assignment performed no deployment. Use a fresh mainnet deployment for the c
 | openingTick | Operator-reviewed multiple of 60; ADAM example `177240` |
 | holderRoot | Reviewed immutable sorted-pair Merkle root, or zero to disable holders |
 | launch | Unix timestamp at least 1 hour (`MIN_LAUNCH_LEAD`) and at most 30 days (`MAX_LAUNCH_LEAD`) after the simulation; preflight rejects anything outside. Choose enough time to complete and fund deployment |
+| l1Bridge | `0x3154Cf16ccdb4C6d922629664174b904d80F2C35` (OP Stack L1StandardBridge for Base); must have code when `receiverOnBase` is set |
+| receiverOnBase | The project's `RegenReceiver` on Base, deployed FIRST by `DeployRegenRail` (docs/REGEN_RAIL.md); zero when a Safe is the seat. When set, the script predicts the `OffsetsForwarder` address, creates the treasury with it, creates the forwarder right after and checks `treasury.offsetsSafe() == forwarder` |
+| minGasLimit | Gas the bridge grants the delivery on Base, 100,000..1,000,000 (`OffsetsForwarder` bounds); `200000` intended |
 
 The script's ABI signature is:
 
 ```
-run((uint256,address,address,address,address,address,address,address,address,address,address,address,address,int24,bytes32,uint256))
+run((uint256,address,address,address,address,address,address,address,address,address,address,address,address,int24,bytes32,uint256,address,address,uint32))
 ```
 
 Pass the serialized tuple with `forge script script/DeployImdo.s.sol:DeployImdo --sig '<signature>' '<tuple>' --rpc-url '<operator RPC>' --sender '<manual signer>'`. Select a hardware wallet or externally managed signer using Foundry's signing options. Do not store signing material in this repository. Simulation is the default. The operator decides separately whether to broadcast after reviewing the transaction sequence. No script entry point reads environment variables.

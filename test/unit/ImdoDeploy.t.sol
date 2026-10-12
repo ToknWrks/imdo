@@ -11,6 +11,7 @@ import {ClaimNFTMock} from "./ImdoClaim.t.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {MockBridge} from "./RegenReceiver.t.sol";
 
 contract ScriptCaller {
     function run(DeployImdo script, DeployImdo.Config memory c) external returns (DeployImdo.Deployment memory) {
@@ -52,8 +53,67 @@ contract ImdoDeployTest is LocalV4 {
             address(seats),
             177240,
             bytes32(0),
-            vm.getBlockTimestamp() + 1 days
+            vm.getBlockTimestamp() + 1 days,
+            address(0),
+            address(0),
+            0
         );
+    }
+
+    function test_forwarderSeatIsPredictedCreatedAndChecked() public {
+        DeployImdo.Config memory c = _config();
+        c.offsetsSafe = address(0);
+        c.l1Bridge = address(new MockBridge());
+        c.receiverOnBase = makeAddr("receiver-on-base");
+        c.minGasLimit = 200_000;
+        DeployImdo.Deployment memory d = script.deploy(c);
+        assertTrue(address(d.forwarder) != address(0));
+        assertEq(d.treasury.offsetsSafe(), address(d.forwarder));
+        assertEq(address(d.forwarder.treasury()), address(d.treasury));
+        assertEq(address(d.forwarder.bridge()), c.l1Bridge);
+        assertEq(d.forwarder.receiverOnBase(), c.receiverOnBase);
+        assertEq(d.forwarder.minGasLimit(), 200_000);
+        assertEq(script.MIN_FORWARD_GAS(), d.forwarder.MIN_GAS_LIMIT());
+        assertEq(script.MAX_FORWARD_GAS(), d.forwarder.MAX_GAS_LIMIT());
+        // the seat pulls: fees reach the treasury, the forwarder takes the Offsets leg and bridges it
+        swapRouter.swap{value: 1 ether}(
+            d.key,
+            SwapParams(true, -int256(1 ether), TickMath.MIN_SQRT_PRICE + 1),
+            PoolSwapTest.TestSettings(false, false),
+            ""
+        );
+        assertEq(address(d.treasury).balance, 0.2 ether);
+        vm.warp(block.timestamp + 601);
+        d.treasury.process();
+        uint256 owed = d.treasury.offsetsOwed();
+        assertGt(owed, 0);
+        d.forwarder.forward();
+        assertEq(MockBridge(c.l1Bridge).lastValue(), owed);
+        assertEq(MockBridge(c.l1Bridge).lastTo(), c.receiverOnBase);
+        assertEq(address(d.forwarder).balance, 0);
+    }
+
+    function test_exactlyOneOffsetsSeat() public {
+        DeployImdo.Config memory c = _config();
+        uint64 nonce = vm.getNonce(address(script));
+        c.offsetsSafe = address(0); // neither
+        vm.expectRevert(DeployImdo.InvalidConfiguration.selector);
+        script.deploy(c);
+        c = _config(); // both
+        c.receiverOnBase = makeAddr("receiver-on-base");
+        c.l1Bridge = address(new MockBridge());
+        c.minGasLimit = 200_000;
+        vm.expectRevert(DeployImdo.InvalidConfiguration.selector);
+        script.deploy(c);
+        c.offsetsSafe = address(0); // a bridge with no code
+        c.l1Bridge = makeAddr("not-the-bridge");
+        vm.expectRevert(DeployImdo.InvalidConfiguration.selector);
+        script.deploy(c);
+        c.l1Bridge = address(new MockBridge()); // a gas limit the forwarder would refuse
+        c.minGasLimit = 50_000;
+        vm.expectRevert(DeployImdo.InvalidConfiguration.selector);
+        script.deploy(c);
+        assertEq(vm.getNonce(address(script)), nonce);
     }
 
     function test_scriptDeploysFundsSeedsBurnsLpAndStartsOwnershipTransfer() public {
