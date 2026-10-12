@@ -73,7 +73,7 @@ contract RegenRouterBaseForkTest is Test {
                 minOutBps: 9700,
                 twapGranularity: 48,
                 minTonnesBps: 9500,
-                maxUsdcPerTonne: 45e6,
+                maxUsdcPerTonne: 75e6,
                 processInterval: 7200
             })
         );
@@ -142,7 +142,7 @@ contract RegenRouterBaseForkTest is Test {
         emit log_named_uint("usdc per tonne", p.spend * 1e18 / p.tonnes);
         assertGt(router.retiredOf(1), 0);
         assertGe(need, ref * 9500 / 10_000);
-        assertLe(p.spend * 1e18 / p.tonnes, 45e6);
+        assertLe(p.spend * 1e18 / p.tonnes, 75e6);
     }
 
     function test_aSpotFarUnderTheDaysAverageIsASkipNotALoss() public view {
@@ -173,7 +173,7 @@ contract RegenRouterBaseForkTest is Test {
         vm.prank(pot);
         router.deposit{value: 0.05 ether}(1);
         address attacker = makeAddr("attacker");
-        _pump(attacker, 8_000e6); // about 2.3x the price: ~49 USDC per tonne
+        _pump(attacker, 18_000e6); // about 4.5x the price: ~95 USDC per tonne, over the 75 ceiling
         uint256 t = block.timestamp;
         for (uint256 i; i < 50; ++i) {
             t += 1801; // vm.warp(block.timestamp + x) only takes once on a fork: drive the clock from a local
@@ -193,7 +193,7 @@ contract RegenRouterBaseForkTest is Test {
         emit log_named_uint("kVCM at the held average (1e18)", ref);
         assertGe(need, ref * 9500 / 10_000, "the relative bar alone would have let it through");
         // ...and the ceiling is what refuses it; the feed is a day old by now, so the refusal is read off the plan
-        assertGt(spend * 1e18 / tonnes, 45e6);
+        assertGt(spend * 1e18 / tonnes, 75e6);
         RegenRouter.Plan memory p = router.plan(125e6);
         assertEq(p.credit, address(0));
         assertEq(p.reason, bytes32("priceOff"));

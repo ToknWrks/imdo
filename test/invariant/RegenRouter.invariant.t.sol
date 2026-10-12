@@ -210,7 +210,7 @@ contract RegenRouterInvariantTest is Test {
                 minOutBps: 9700,
                 twapGranularity: 4,
                 minTonnesBps: 9700,
-                maxUsdcPerTonne: 45e6,
+                maxUsdcPerTonne: 75e6,
                 processInterval: 7200
             })
         );

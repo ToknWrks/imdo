@@ -69,7 +69,7 @@ contract DeployRegenRailTest is Test {
             minOutBps: 9700,
             twapGranularity: 48,
             minTonnesBps: 9500,
-            maxUsdcPerTonne: 45e6,
+            maxUsdcPerTonne: 75e6,
             processInterval: 7200,
             projectName: "IMDO",
             regenAddress: REGEN,
@@ -90,7 +90,7 @@ contract DeployRegenRailTest is Test {
         assertEq(d.router.maxBatch(), 0.05 ether);
         assertEq(d.router.twapGranularity(), 48);
         assertEq(d.router.minTonnesBps(), 9500);
-        assertEq(d.router.maxUsdcPerTonne(), 45e6);
+        assertEq(d.router.maxUsdcPerTonne(), 75e6);
         assertEq(d.router.processInterval(), 7200);
         assertEq(d.registry.count(), 1); // registered in the registry's own creation
         assertEq(address(d.router.sequencerUptime()), c.sequencerUptime);

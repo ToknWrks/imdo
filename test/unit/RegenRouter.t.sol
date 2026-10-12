@@ -380,7 +380,7 @@ contract RegenRouterTest is Test {
     uint256 internal constant RATE = 2500e6; // USDC per ETH, equal to the oracle
     /// @dev 22 kVCM per tonne; the pool pays 1 kVCM per USDC, so a tonne costs 22 USDC.
     uint256 internal constant PER_TONNE = 22e18;
-    uint256 internal constant CEILING = 45e6; // USDC per tonne
+    uint256 internal constant CEILING = 75e6; // USDC per tonne
     uint256 internal constant INTERVAL = 7200;
 
     /// @dev The test contract calls `process` directly in most tests and must be able to take the bounty.
@@ -705,14 +705,14 @@ contract RegenRouterTest is Test {
 
     function test_theCeilingHoldsWhateverThePoolSays() public {
         _deposit(0.03 ether);
-        pool.setSpot(0.4e18);
-        pool.setTwap(0.4e18); // held for the whole window: 55 USDC per tonne
+        pool.setSpot(0.25e18);
+        pool.setTwap(0.25e18); // held for the whole window: 88 USDC per tonne
         vm.expectEmit(true, true, false, true);
         emit RegenRouter.Skipped(1, depositor, "priceOff");
         router.process(1, depositor);
         assertEq(router.balanceOf(1, depositor), 0.03 ether);
         pool.setSpot(0.5e18);
-        pool.setTwap(0.5e18); // 44 USDC per tonne: under the 45 ceiling
+        pool.setTwap(0.5e18); // 44 USDC per tonne: under the 75 ceiling
         router.process(1, depositor);
         assertEq(agg.lastTonnes(), 1.125e18); // 49.5 × 0.5 / 22
         RegenRouter.Plan memory pl = router.plan(49.5e6);
@@ -913,7 +913,7 @@ contract RegenRouterTest is Test {
         agg.setCredit(creditA, 2e18);
         agg.setCredit(creditB, 0);
         agg.setCredit(creditC, 0);
-        pool.setSpot(0.5e18); // pumped in this transaction: 44 USDC per tonne, under the 45 ceiling; average unmoved
+        pool.setSpot(0.5e18); // pumped in this transaction: 44 USDC per tonne, under the 75 ceiling; average unmoved
         RegenRouter.Plan memory p = router.plan(121e6);
         assertEq(p.credit, address(0), "the plan accepted a 2x same-tx pump with no hold");
         assertEq(p.reason, bytes32("priceOff"));
