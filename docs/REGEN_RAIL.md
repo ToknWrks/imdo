@@ -126,6 +126,16 @@ There is no oracle for kVCM; this is the trade.
   once the ETH is gone, a reverting `balanceOf` passed over, the bar in kVCM against a liquid-supply-capped quoter,
   pro-rata bounty, rounding slack, remainders, bech32, name keys, forwarder bounds, both deploy scripts including the
   credit-leg preflight and a front-run receiver).
+- **Grammar v1 shared vectors** (Regen's reference parser and 28 vectors: `github.com/CShear/mode-e-grammar`, commit
+  `6f5a5a0`; copy in `test/fixtures/mode-e-grammar-v1-vectors.json`). The router is a builder, so the check runs the other
+  way round: every valid vector's project, name and regen address go through the registry's validators and
+  `router.message()` and must come back byte for byte (`RegenRouter.t.sol`); every invalid vector a registration could be
+  blamed for (pipe, 65 bytes, trailing space, non-ASCII, newline, bad bech32 charset, uppercase) is refused by the
+  registry (`RegenRegistry.t.sol`); the parser-side ones (prefix, mode, order, separator, tags, src chain, leading zero,
+  checksummed address, over 512 bytes) cannot come out of the router's template. Two stated differences from the vectors:
+  the router always writes `src:8453:<depositor on Base>`, the Ethereum forwarder's ETH included (it arrives through the
+  bridge at the project's `RegenReceiver`, so the mirror sees the receiver, not the forwarder; vectors with `src:1:` are
+  compared with the chain id swapped), and the router writes no tags.
 - `forge test --match-path "test/invariant/RegenRouter*"`: a handler drives deposits, batches, pool spot and average
   moves, fill changes, credit supply, retirement reverts, feed staleness and keepers that cannot take ETH; invariants:
   ETH conserved and equal to the sum of balances, USDC conserved and fully attributed to depositors, tonnes counted

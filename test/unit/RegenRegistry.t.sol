@@ -176,4 +176,32 @@ contract RegenRegistryTest is Test {
             out = string.concat(out, s);
         }
     }
+
+    // ── Mode E grammar v1 shared vectors (github.com/CShear/mode-e-grammar @ 6f5a5a0; copy in test/fixtures/).
+    //    The invalid vectors a REGISTRATION can be blamed for: the registry refuses each of them, so the router can
+    //    never assemble such a message. (The others are parser-side: prefix, mode, order, field count, separator,
+    //    tags, src chain; the router's template cannot produce them, pinned in RegenRouter.t.sol.)
+    function test_grammarV1InvalidVectorsTheRegistryRefuses() public view {
+        assertFalse(reg.validName(bytes("IM|DO")), "x06 pipe inside name -> E_PIPE");
+        assertFalse(
+            reg.validName(bytes("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")),
+            "x07 65-byte name -> E_NAME"
+        );
+        assertFalse(reg.validName(bytes("IMDO ")), "x08 trailing space in name -> E_NAME");
+        assertFalse(
+            reg.validRegenAddress(bytes("regen1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+            "x09 bad regen charset (contains b) -> E_REGEN"
+        );
+        assertFalse(
+            reg.validRegenAddress(bytes("REGEN183HT37FSP2FHNQ3GNEYJYCP08C3JU4XNVXNVAN")),
+            "x10 uppercase regen -> E_REGEN"
+        );
+        assertFalse(reg.validName(bytes(string(abi.encodePacked("IMD", hex"c396")))), "x18 non-ASCII -> E_CHARSET");
+        assertFalse(reg.validName(bytes(string(abi.encodePacked("IMDO", hex"0a")))), "x19 newline -> E_CHARSET");
+        // and every valid vector's name and regen address are accepted
+        assertTrue(reg.validName("IMDO"));
+        assertTrue(reg.validName("Swarm Made (MADE)"));
+        assertTrue(reg.validName("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
+        assertTrue(reg.validRegenAddress("regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan"));
+    }
 }

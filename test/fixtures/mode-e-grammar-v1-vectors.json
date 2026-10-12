@@ -1,0 +1,203 @@
+{
+  "grammar": "mode-e-v1",
+  "generated": "2026-10-08",
+  "valid": [
+    {
+      "label": "v01 minimal, Ethereum forwarder",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "parsed": {
+        "project": "1",
+        "name": "IMDO",
+        "regen": "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan",
+        "src": "1:0x0000000000000000000000000000000000000001",
+        "tags": {}
+      }
+    },
+    {
+      "label": "v02 Base direct depositor",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03",
+      "parsed": {
+        "project": "1",
+        "name": "IMDO",
+        "regen": "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan",
+        "src": "8453:0x55beb053c003f98c1059f2a497132cba72104a03",
+        "tags": {}
+      }
+    },
+    {
+      "label": "v03 one tag",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03 | tag:game=round-12",
+      "parsed": {
+        "project": "1",
+        "name": "IMDO",
+        "regen": "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan",
+        "src": "8453:0x55beb053c003f98c1059f2a497132cba72104a03",
+        "tags": {
+          "game": "round-12"
+        }
+      }
+    },
+    {
+      "label": "v04 two tags",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03 | tag:game=round-12 | tag:wallet=0x1234abcd",
+      "parsed": {
+        "project": "1",
+        "name": "IMDO",
+        "regen": "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan",
+        "src": "8453:0x55beb053c003f98c1059f2a497132cba72104a03",
+        "tags": {
+          "game": "round-12",
+          "wallet": "0x1234abcd"
+        }
+      }
+    },
+    {
+      "label": "v05 project id 0",
+      "message": "regen-klima-retire | mode:hook | project:0 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "parsed": {
+        "project": "0",
+        "name": "IMDO",
+        "regen": "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan",
+        "src": "1:0x0000000000000000000000000000000000000001",
+        "tags": {}
+      }
+    },
+    {
+      "label": "v06 name with spaces and punctuation",
+      "message": "regen-klima-retire | mode:hook | project:7 | name:Swarm Made (MADE) | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "parsed": {
+        "project": "7",
+        "name": "Swarm Made (MADE)",
+        "regen": "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan",
+        "src": "1:0x0000000000000000000000000000000000000001",
+        "tags": {}
+      }
+    },
+    {
+      "label": "v07 64-byte name",
+      "message": "regen-klima-retire | mode:hook | project:7 | name:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "parsed": {
+        "project": "7",
+        "name": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "regen": "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan",
+        "src": "1:0x0000000000000000000000000000000000000001",
+        "tags": {}
+      }
+    },
+    {
+      "label": "v08 tag value with spaces",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03 | tag:note=hackathon week 2",
+      "parsed": {
+        "project": "1",
+        "name": "IMDO",
+        "regen": "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan",
+        "src": "8453:0x55beb053c003f98c1059f2a497132cba72104a03",
+        "tags": {
+          "note": "hackathon week 2"
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "label": "x01 wrong prefix",
+      "message": "regen-klima-retir | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_PREFIX"
+    },
+    {
+      "label": "x02 wrong mode",
+      "message": "regen-klima-retire | mode:protocol | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_MODE"
+    },
+    {
+      "label": "x03 missing name",
+      "message": "regen-klima-retire | mode:hook | project:1 | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_FIELD_COUNT"
+    },
+    {
+      "label": "x04 fields out of order",
+      "message": "regen-klima-retire | mode:hook | name:IMDO | project:1 | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_ORDER_PROJECT"
+    },
+    {
+      "label": "x05 leading zero id",
+      "message": "regen-klima-retire | mode:hook | project:01 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_PROJECT"
+    },
+    {
+      "label": "x06 pipe inside name",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IM|DO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_PIPE"
+    },
+    {
+      "label": "x07 65-byte name",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_NAME"
+    },
+    {
+      "label": "x08 trailing space in name",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO  | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_NAME"
+    },
+    {
+      "label": "x09 bad regen charset (contains b)",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_REGEN"
+    },
+    {
+      "label": "x10 uppercase regen",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:REGEN183HT37FSP2FHNQ3GNEYJYCP08C3JU4XNVXNVAN | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_REGEN"
+    },
+    {
+      "label": "x11 unsupported chain",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:10:0x0000000000000000000000000000000000000001",
+      "error": "E_SRC"
+    },
+    {
+      "label": "x12 checksummed (uppercase) address",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55bEb053c003F98c1059F2a497132CBA72104a03",
+      "error": "E_SRC"
+    },
+    {
+      "label": "x13 tag without =",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001 | tag:game",
+      "error": "E_TAG_FORM"
+    },
+    {
+      "label": "x14 tag key uppercase",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001 | tag:Game=1",
+      "error": "E_TAG_KEY"
+    },
+    {
+      "label": "x15 tag value with =",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001 | tag:k=a=b",
+      "error": "E_TAG_VALUE"
+    },
+    {
+      "label": "x16 duplicate tag key",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001 | tag:k=1 | tag:k=2",
+      "error": "E_TAG_DUP"
+    },
+    {
+      "label": "x17 single-space separator",
+      "message": "regen-klima-retire |mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_FIELD_COUNT"
+    },
+    {
+      "label": "x18 non-ASCII",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMD\u00d6 | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_CHARSET"
+    },
+    {
+      "label": "x19 newline",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO\n | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001",
+      "error": "E_CHARSET"
+    },
+    {
+      "label": "x20 over 512 bytes",
+      "message": "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001 | tag:t0=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv | tag:t1=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv | tag:t2=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv | tag:t3=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv | tag:t4=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv | tag:t5=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv | tag:t6=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv | tag:t7=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
+      "error": "E_LENGTH"
+    }
+  ]
+}

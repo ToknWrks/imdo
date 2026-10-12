@@ -1265,4 +1265,207 @@ contract RegenRouterTest is Test {
         }
         return string(b);
     }
+
+    // ── Mode E grammar v1 shared vectors (Christian, github.com/CShear/mode-e-grammar @ 6f5a5a0, generated 2026-10-08;
+    //    copy in test/fixtures/mode-e-grammar-v1-vectors.json). The router is a BUILDER: every valid vector's project,
+    //    name and regen address, fed through the registry's validators and router.message(), must reproduce the
+    //    vector byte for byte. Two deliberate differences, stated here: (1) the router always writes src:8453 (the
+    //    depositor on Base, the Ethereum forwarder included, since it arrives through the bridge); vectors with src:1
+    //    are compared with the chain id swapped. (2) the router writes no tags; tagged vectors are compared on the
+    //    six mandatory fields and the vector must start with what we build.
+    function test_grammarV1ValidVectorsAreWhatTheRouterBuilds() public view {
+        {
+            // v01 minimal, Ethereum forwarder
+            RegenRegistry.Project memory p =
+                RegenRegistry.Project(address(1), "IMDO", "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan");
+            assertTrue(reg.validName(bytes(p.name)), "v01 name");
+            assertTrue(reg.validRegenAddress(bytes(p.regenAddress)), "v01 regen");
+            string memory m = router.message(1, p, 0x0000000000000000000000000000000000000001);
+            assertEq(
+                m,
+                "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x0000000000000000000000000000000000000001",
+                "v01"
+            );
+            assertEq(
+                bytes(m).length,
+                bytes(
+                    "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001"
+                )
+                .length + 3,
+                "v01 length"
+            );
+        }
+        {
+            // v02 Base direct depositor
+            RegenRegistry.Project memory p =
+                RegenRegistry.Project(address(1), "IMDO", "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan");
+            assertTrue(reg.validName(bytes(p.name)), "v02 name");
+            assertTrue(reg.validRegenAddress(bytes(p.regenAddress)), "v02 regen");
+            string memory m = router.message(1, p, 0x55bEb053c003F98c1059F2a497132CBA72104a03);
+            assertEq(
+                m,
+                "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03",
+                "v02"
+            );
+            assertTrue(
+                _startsWith(
+                    "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03",
+                    m
+                ),
+                "v02 prefix"
+            );
+        }
+        {
+            // v03 one tag
+            RegenRegistry.Project memory p =
+                RegenRegistry.Project(address(1), "IMDO", "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan");
+            assertTrue(reg.validName(bytes(p.name)), "v03 name");
+            assertTrue(reg.validRegenAddress(bytes(p.regenAddress)), "v03 regen");
+            string memory m = router.message(1, p, 0x55bEb053c003F98c1059F2a497132CBA72104a03);
+            assertEq(
+                m,
+                "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03",
+                "v03"
+            );
+            assertTrue(
+                _startsWith(
+                    "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03 | tag:game=round-12",
+                    m
+                ),
+                "v03 prefix"
+            );
+        }
+        {
+            // v04 two tags
+            RegenRegistry.Project memory p =
+                RegenRegistry.Project(address(1), "IMDO", "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan");
+            assertTrue(reg.validName(bytes(p.name)), "v04 name");
+            assertTrue(reg.validRegenAddress(bytes(p.regenAddress)), "v04 regen");
+            string memory m = router.message(1, p, 0x55bEb053c003F98c1059F2a497132CBA72104a03);
+            assertEq(
+                m,
+                "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03",
+                "v04"
+            );
+            assertTrue(
+                _startsWith(
+                    "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03 | tag:game=round-12 | tag:wallet=0x1234abcd",
+                    m
+                ),
+                "v04 prefix"
+            );
+        }
+        {
+            // v05 project id 0
+            RegenRegistry.Project memory p =
+                RegenRegistry.Project(address(1), "IMDO", "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan");
+            assertTrue(reg.validName(bytes(p.name)), "v05 name");
+            assertTrue(reg.validRegenAddress(bytes(p.regenAddress)), "v05 regen");
+            string memory m = router.message(0, p, 0x0000000000000000000000000000000000000001);
+            assertEq(
+                m,
+                "regen-klima-retire | mode:hook | project:0 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x0000000000000000000000000000000000000001",
+                "v05"
+            );
+            assertEq(
+                bytes(m).length,
+                bytes(
+                    "regen-klima-retire | mode:hook | project:0 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001"
+                )
+                .length + 3,
+                "v05 length"
+            );
+        }
+        {
+            // v06 name with spaces and punctuation
+            RegenRegistry.Project memory p =
+                RegenRegistry.Project(address(1), "Swarm Made (MADE)", "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan");
+            assertTrue(reg.validName(bytes(p.name)), "v06 name");
+            assertTrue(reg.validRegenAddress(bytes(p.regenAddress)), "v06 regen");
+            string memory m = router.message(7, p, 0x0000000000000000000000000000000000000001);
+            assertEq(
+                m,
+                "regen-klima-retire | mode:hook | project:7 | name:Swarm Made (MADE) | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x0000000000000000000000000000000000000001",
+                "v06"
+            );
+            assertEq(
+                bytes(m).length,
+                bytes(
+                    "regen-klima-retire | mode:hook | project:7 | name:Swarm Made (MADE) | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001"
+                )
+                .length + 3,
+                "v06 length"
+            );
+        }
+        {
+            // v07 64-byte name
+            RegenRegistry.Project memory p = RegenRegistry.Project(
+                address(1),
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan"
+            );
+            assertTrue(reg.validName(bytes(p.name)), "v07 name");
+            assertTrue(reg.validRegenAddress(bytes(p.regenAddress)), "v07 regen");
+            string memory m = router.message(7, p, 0x0000000000000000000000000000000000000001);
+            assertEq(
+                m,
+                "regen-klima-retire | mode:hook | project:7 | name:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x0000000000000000000000000000000000000001",
+                "v07"
+            );
+            assertEq(
+                bytes(m).length,
+                bytes(
+                    "regen-klima-retire | mode:hook | project:7 | name:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:1:0x0000000000000000000000000000000000000001"
+                )
+                .length + 3,
+                "v07 length"
+            );
+        }
+        {
+            // v08 tag value with spaces
+            RegenRegistry.Project memory p =
+                RegenRegistry.Project(address(1), "IMDO", "regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan");
+            assertTrue(reg.validName(bytes(p.name)), "v08 name");
+            assertTrue(reg.validRegenAddress(bytes(p.regenAddress)), "v08 regen");
+            string memory m = router.message(1, p, 0x55bEb053c003F98c1059F2a497132CBA72104a03);
+            assertEq(
+                m,
+                "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03",
+                "v08"
+            );
+            assertTrue(
+                _startsWith(
+                    "regen-klima-retire | mode:hook | project:1 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03 | tag:note=hackathon week 2",
+                    m
+                ),
+                "v08 prefix"
+            );
+        }
+    }
+
+    /// x05 (leading zero), x12 (checksummed address) and x20 (over 512 bytes) are things a builder could get wrong:
+    /// the router cannot produce any of them.
+    function test_grammarV1InvalidVectorsTheRouterCannotProduce() public view {
+        RegenRegistry.Project memory p = reg.project(1);
+        assertEq(
+            router.message(10, p, 0x55bEb053c003F98c1059F2a497132CBA72104a03),
+            "regen-klima-retire | mode:hook | project:10 | name:IMDO | regen:regen183ht37fsp2fhnq3gneyjycp08c3ju4xnvxnvan | src:8453:0x55beb053c003f98c1059f2a497132cba72104a03"
+        );
+        // the longest message the router can build: a 78-digit id, a 64-byte name
+        p.name = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        string memory m = router.message(type(uint256).max, p, address(type(uint160).max));
+        assertEq(bytes(m).length, 298);
+        assertLe(bytes(m).length, 512);
+        assertEq(bytes(m)[bytes(m).length - 1], bytes1("f")); // lowercase hex, never checksummed
+    }
+
+    function _startsWith(string memory whole, string memory prefix) private pure returns (bool) {
+        bytes memory w = bytes(whole);
+        bytes memory q = bytes(prefix);
+        if (q.length > w.length) return false;
+        for (uint256 i; i < q.length; ++i) {
+            if (w[i] != q[i]) return false;
+        }
+        return true;
+    }
 }
