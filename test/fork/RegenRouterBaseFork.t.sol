@@ -27,6 +27,7 @@ contract RegenRouterBaseForkTest is Test {
     address constant WETH = 0x4200000000000000000000000000000000000006;
     address constant SWAP_ROUTER02 = 0x2626664c2603336E57B271c5C0b26F421741e481;
     address constant FEED = 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70;
+    address constant SEQUENCER = 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433;
     address constant VAULT = 0xf4699531e0a5F6e9351a36De3753Deaad329Bf45;
     address constant C004 = 0xE6628083Ab9A9Ab235e80f63e7ecd810B54A71B8;
     address constant C003 = 0x3D1bf942619cB9FC71543721Ef3D5496FAf283B8;
@@ -56,6 +57,7 @@ contract RegenRouterBaseForkTest is Test {
                 creditC: C006,
                 venue: IEthToTokenSwap(address(new UniswapV3Venue(ISwapRouter02(SWAP_ROUTER02), WETH, USDC, 500))),
                 ethUsd: IPriceFeed(FEED),
+                sequencerUptime: IPriceFeed(SEQUENCER),
                 maxFeedAge: 86_400,
                 minBatch: 0.001 ether,
                 maxBatch: 0.05 ether,

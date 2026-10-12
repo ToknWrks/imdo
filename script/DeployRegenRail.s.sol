@@ -32,6 +32,7 @@ contract DeployRegenRail is Script {
         address weth;
         uint24 v3Fee;
         address ethUsd;
+        address sequencerUptime;
         uint256 maxFeedAge;
         uint256 minBatch;
         uint256 maxBatch;
@@ -79,6 +80,7 @@ contract DeployRegenRail is Script {
                 creditC: c.creditC,
                 venue: IEthToTokenSwap(address(d.venue)),
                 ethUsd: IPriceFeed(c.ethUsd),
+                sequencerUptime: IPriceFeed(c.sequencerUptime),
                 maxFeedAge: c.maxFeedAge,
                 minBatch: c.minBatch,
                 maxBatch: c.maxBatch,
@@ -103,6 +105,7 @@ contract DeployRegenRail is Script {
                 || c.classVault.code.length == 0 || c.creditA.code.length == 0 || c.creditB.code.length == 0
                 || c.creditC.code.length == 0 || c.swapRouter02.code.length == 0 || c.weth.code.length == 0
                 || c.ethUsd.code.length == 0 || c.beneficiary == address(0)
+                || (c.sequencerUptime != address(0) && c.sequencerUptime.code.length == 0)
         ) revert InvalidConfiguration();
         // What the router's constructor would refuse, before any creation.
         if (

@@ -39,6 +39,7 @@ contract DeployRegenRailTest is Test {
             weth: address(new HasCode()),
             v3Fee: 500,
             ethUsd: address(feed),
+            sequencerUptime: address(new MockFeed()),
             maxFeedAge: 3600,
             minBatch: 0.001 ether,
             maxBatch: 0.05 ether,
@@ -65,6 +66,7 @@ contract DeployRegenRailTest is Test {
         assertEq(d.router.maxBatch(), 0.05 ether);
         assertEq(d.router.twapGranularity(), 4);
         assertEq(d.router.minTonnesBps(), 9700);
+        assertEq(address(d.router.sequencerUptime()), c.sequencerUptime);
         assertEq(address(d.factory.router()), address(d.router));
         assertEq(d.receiver, d.factory.predict(1));
         assertGt(d.receiver.code.length, 0);
@@ -86,6 +88,10 @@ contract DeployRegenRailTest is Test {
         script.deploy(c);
         c = _config();
         c.kvcmPool = address(new MockPool(address(kvcm), makeAddr("other")));
+        vm.expectRevert(DeployRegenRail.InvalidConfiguration.selector);
+        script.deploy(c);
+        c = _config();
+        c.sequencerUptime = makeAddr("no-code-either");
         vm.expectRevert(DeployRegenRail.InvalidConfiguration.selector);
         script.deploy(c);
         c = _config();

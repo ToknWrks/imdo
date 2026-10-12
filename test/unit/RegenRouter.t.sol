@@ -13,7 +13,7 @@ import {
     DiscountedForwardBalanceContext,
     UpdateLiquidSupplyRateLimiterParams
 } from "../../src/regen/interfaces/IKlimaRetirementAggregator.sol";
-import {IEthToTokenSwap, IPriceFeed} from "../../src/regen/interfaces/IEthToTokenSwap.sol";
+import {IEthToTokenSwap, IPriceFeed, IPriceFeedAggregator} from "../../src/regen/interfaces/IEthToTokenSwap.sol";
 import {IAerodromePool} from "../../src/regen/interfaces/IAerodromePool.sol";
 
 contract MockUsdc is ERC20 {
@@ -32,17 +32,39 @@ contract MockKvcm is ERC20 {
     constructor() ERC20("kVCM", "kVCM") {}
 }
 
+/// @dev The aggregator behind a Chainlink proxy, with its clamp.
+contract MockClamp is IPriceFeedAggregator {
+    int192 public minAnswer = 1;
+    int192 public maxAnswer = type(int192).max;
+
+    function set(int192 lo, int192 hi) external {
+        minAnswer = lo;
+        maxAnswer = hi;
+    }
+}
+
+/// @dev A Chainlink proxy: ETH/USD by default; also stands in for the sequencer uptime feed (answer 0/1, startedAt).
 contract MockFeed is IPriceFeed {
     int256 public answer = 2500e8;
+    uint256 public startedAt;
     uint256 public updatedAt;
+    MockClamp public clamp;
+    bool public noAggregator;
 
     constructor() {
         updatedAt = block.timestamp;
+        startedAt = block.timestamp;
+        clamp = new MockClamp();
     }
 
     function set(int256 a, uint256 t) external {
         answer = a;
         updatedAt = t;
+        startedAt = t;
+    }
+
+    function setNoAggregator(bool b) external {
+        noAggregator = b;
     }
 
     function decimals() external pure returns (uint8) {
@@ -50,7 +72,12 @@ contract MockFeed is IPriceFeed {
     }
 
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) {
-        return (1, answer, updatedAt, updatedAt, 1);
+        return (1, answer, startedAt, updatedAt, 1);
+    }
+
+    function aggregator() external view returns (IPriceFeedAggregator) {
+        require(!noAggregator, "no aggregator");
+        return clamp;
     }
 }
 
@@ -164,6 +191,7 @@ contract MockAggregator is IKlimaRetirementAggregator {
     RetireDetails public last;
     address public lastCredit;
     uint256 public lastTonnes;
+    uint256 public lastSpent;
     uint256 public retirements;
 
     error TokenNotSupported();
@@ -254,6 +282,7 @@ contract MockAggregator is IKlimaRetirementAggregator {
         last = details;
         lastCredit = creditToken;
         lastTonnes = tonnes;
+        lastSpent = cost;
         ++retirements;
     }
 
@@ -326,6 +355,7 @@ contract RegenRouterTest is Test {
             creditC: creditC,
             venue: venue,
             ethUsd: feed,
+            sequencerUptime: IPriceFeed(address(0)),
             maxFeedAge: 3600,
             minBatch: minB,
             maxBatch: maxB,
@@ -579,6 +609,44 @@ contract RegenRouterTest is Test {
         feed.set(2500e8, block.timestamp);
         router.process(1, depositor);
         assertEq(agg.retirements(), 1);
+    }
+
+    function test_anAnswerOnTheClampIsStale() public {
+        _deposit(0.03 ether);
+        feed.clamp().set(2500e8, 10_000e8); // the market fell to the floor of the feed's range
+        vm.expectEmit(true, true, false, true);
+        emit RegenRouter.Skipped(1, depositor, "feedStale");
+        router.process(1, depositor);
+        feed.clamp().set(1, 2500e8); // or rose to its ceiling
+        vm.expectEmit(true, true, false, true);
+        emit RegenRouter.Skipped(1, depositor, "feedStale");
+        router.process(1, depositor);
+        feed.clamp().set(1, 10_000e8);
+        router.process(1, depositor);
+        assertEq(agg.retirements(), 1);
+        feed.setNoAggregator(true); // a feed with no clamp to read is fine
+        router.process(1, depositor);
+        assertEq(agg.retirements(), 2);
+    }
+
+    function test_theSequencerMustBeUpForAnHour() public {
+        MockFeed sequencer = new MockFeed();
+        RegenRouter.Config memory c = _config(0.001 ether, 0.02 ether, 100, 9700);
+        c.sequencerUptime = sequencer;
+        router = new RegenRouter(c);
+        _deposit(0.03 ether);
+        sequencer.set(1, block.timestamp - 7200); // down
+        vm.expectEmit(true, true, false, true);
+        emit RegenRouter.Skipped(1, depositor, "feedStale");
+        router.process(1, depositor);
+        sequencer.set(0, block.timestamp - 3599); // back, but not for an hour yet
+        vm.expectEmit(true, true, false, true);
+        emit RegenRouter.Skipped(1, depositor, "feedStale");
+        router.process(1, depositor);
+        sequencer.set(0, block.timestamp - 3600);
+        router.process(1, depositor);
+        assertEq(agg.retirements(), 1);
+        assertEq(address(router.sequencerUptime()), address(sequencer));
     }
 
     function test_minOutFollowsTheOracle() public view {

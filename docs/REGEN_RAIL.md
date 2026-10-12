@@ -38,7 +38,8 @@ is part of the deploy, not optional.
 | `classVault` | `0xf4699531e0a5f6e9351a36de3753deaad329bf45` | City Forest class vault |
 | `creditA/B/C` | C02-004 `0xe662…71b8`, C02-003 `0x3d1b…83b8`, C02-006 `0xb77a…1d7d` | fixed order, fall through |
 | `swapRouter02` / `weth` / `v3Fee` | `0x2626664c2603336E57B271c5C0b26F421741e481` / `0x4200…0006` / 500 | WETH/USDC 0.05% V3 pool |
-| `ethUsd` / `maxFeedAge` | `0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70` / 3600 | Chainlink ETH/USD, 8 dec |
+| `ethUsd` / `maxFeedAge` | `0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70` / 3600 | Chainlink ETH/USD, 8 dec; an answer on the aggregator's min/max clamp counts as stale (on Base the clamp is 1 .. 2^176, so it never binds today) |
+| `sequencerUptime` | `0xBCF85224fc0756B9Fa45aA7892530B47e10b6433` | Chainlink L2 sequencer uptime feed; a batch skips while the sequencer is down and for one hour after it returns (`SEQUENCER_GRACE`) |
 | `minBatch` / `maxBatch` | 0.001 / 0.05 ETH | a batch is ~1% of the kVCM pool; remainders under `minBatch` still process, with no bounty |
 | `bountyBps` | 50 | a `process()` costs ~4M gas on Base; below ~0.01 ETH a third party's gas exceeds the bounty, so small balances rely on the project's own keeper (or anyone) processing them |
 | `minOutBps` | 9700 | ETH→USDC held to 97% of Chainlink |
@@ -46,7 +47,8 @@ is part of the deploy, not optional.
 
 ## What `process()` refuses and what it emits
 
-- `Skipped("feedStale")`: Chainlink older than `maxFeedAge`, zero, negative, or dated in the future. ETH kept.
+- `Skipped("feedStale")`: Chainlink older than `maxFeedAge`, zero, negative, dated in the future, or on the
+  aggregator's clamp; or the sequencer down / back for under an hour. ETH kept.
 - `Skipped("classEmpty")`: no credit token quotes a step of a tonne for the batch's dollars. ETH kept.
 - `Skipped("priceOff")`: a credit quotes, but under `minTonnesBps` of the time-weighted reference (the kVCM pool is
   pumped, or the pool's quote reverts). ETH kept, nothing swapped, no bounty.
@@ -66,19 +68,32 @@ is part of the deploy, not optional.
 - **The kVCM pool.** The time-weighted bar is as good as the pool's observations. A price held away from the average
   for a whole window (≥2 h with granularity 4) moves the bar; that costs the mover the pool's fees and the arbitrage
   against them for that long, for at most 3% of a batch.
-- **Chainlink on Base.** Round completeness and the L2 sequencer uptime feed are not consulted; within one hour of a
-  sequencer outage the last answer is accepted. The 97% floor and the 0.05 ETH cap bound what that could cost.
+- **Chainlink on Base.** The sequencer uptime feed and the aggregator clamp are consulted; round completeness is not
+  (OCR feeds no longer need it). The 97% floor and the 0.05 ETH cap bound what a wrong answer could cost.
 - **The canonical bridge.** A delivery that runs out of gas on Base is replayable by anyone (`relayMessage`); nothing
   is lost. `minGasLimit` is bounded so the L1 portal can never refuse the deposit.
 - **The registry.** Names are unique on a key (lower-cased, spaces collapsed) and the regen address's bech32 checksum
   is verified on chain, but registration is first come and permanent: register in the deploy broadcast, and check the
   regen address is the project's own before sending (a valid address that is not yours cannot be corrected).
 
+## Rehearsed (dry runs, nothing broadcast; 2026-10-12)
+
+- `DeployRegenRail` against live Base with the intended values above: preflight passed on the real addresses (pool
+  tokens, code), 6 transactions, ~7.08M gas (~0.00007 ETH at 0.01 gwei). The broadcast sender must be an EOA.
+- `script/rehearse-mainnet.sh` with `OFFSETS=0x0`, `RECEIVER_ON_BASE=<dummy>`: the forwarder is predicted from the
+  deployer's next nonce and created right after the treasury; the pair check passed under the real broadcast
+  simulation (~13.9M gas in total). Re-run with the real receiver address after the Base broadcast.
+
 ## Tests
 
 - `forge test`: unit tests with a pool-priced aggregator stand-in (sandwich skipped before anything is spent, plan vs
   retirement divergence reverts, retirement reverts fall through, partial absorption stays with the project, rounding
   slack, remainders, bech32, name keys, forwarder bounds, both deploy scripts).
-- `FOUNDRY_PROFILE=fork forge test` (`BASE_RPC_URL` optional; Base block 52,335,751): a real retirement through the real
-  aggregator, a full batch against the real time-weighted bar, and an 8,000 USDC pump of the real pool answered with
-  `Skipped("priceOff")`.
+- `forge test --match-path "test/invariant/RegenRouter*"`: a handler drives deposits, batches, pool spot and average
+  moves, fill changes, credit supply, retirement reverts, feed staleness and keepers that cannot take ETH; invariants:
+  ETH conserved and equal to the sum of balances, USDC conserved and fully attributed to projects, tonnes counted once
+  in whole steps, no standing allowance.
+- `FOUNDRY_PROFILE=fork forge test` (`BASE_RPC_URL` / `ETH_RPC_URL` optional; Base block 52,335,751): a real retirement
+  through the real aggregator, a full batch against the real time-weighted bar, an 8,000 USDC pump of the real pool
+  answered with `Skipped("priceOff")`, and the forwarder pulling and bridging through the real L1StandardBridge at both
+  gas bounds.

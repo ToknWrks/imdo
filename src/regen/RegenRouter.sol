@@ -11,7 +11,7 @@ import {
     DiscountedForwardBalanceContext,
     UpdateLiquidSupplyRateLimiterParams
 } from "./interfaces/IKlimaRetirementAggregator.sol";
-import {IEthToTokenSwap, IPriceFeed} from "./interfaces/IEthToTokenSwap.sol";
+import {IEthToTokenSwap, IPriceFeed, IPriceFeedAggregator} from "./interfaces/IEthToTokenSwap.sol";
 import {IAerodromePool} from "./interfaces/IAerodromePool.sol";
 import {IRegenRouterDeposit} from "./RegenReceiver.sol";
 
@@ -26,7 +26,8 @@ import {IRegenRouterDeposit} from "./RegenReceiver.sol";
 ///        1. take min(balance, maxBatch). A batch of at least `minBatch` pays the caller `bountyBps`; a smaller
 ///           remainder (what is left after the last full batch, or a forfeited bounty) is processed with no bounty,
 ///           so nothing is ever stranded and tiny deposits cannot farm the bounty;
-///        2. read Chainlink ETH/USD; stale (or dated in the future) → emit `Skipped("feedStale")`, keep the ETH;
+///        2. read Chainlink ETH/USD; stale, dated in the future, on the aggregator's min/max clamp, or the L2 sequencer
+///           down or back for under an hour → emit `Skipped("feedStale")`, keep the ETH;
 ///        3. plan the retirement before spending anything: for each credit token in fixed order, ask the aggregator
 ///           what the batch's dollars (at least `minOutBps` of the oracle value, plus the project's remainder) would
 ///           retire, and hold that against the bar in step 5. No credit plans → `Skipped("classEmpty")` or
@@ -59,6 +60,8 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
     /// @dev Retirements are floored to six decimals of a tonne (what the Regen side mirrors).
     uint256 public constant TONNE_STEP = 1e12;
     string public constant RETIRING_ENTITY = "Regen Retirement Router";
+    /// @dev After the sequencer comes back, this long must pass before a price is trusted again (Chainlink's guidance).
+    uint256 public constant SEQUENCER_GRACE = 1 hours;
 
     RegenRegistry public immutable registry;
     IKlimaRetirementAggregator public immutable aggregator;
@@ -74,6 +77,8 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
     address public immutable creditC;
     IEthToTokenSwap public immutable venue;
     IPriceFeed public immutable ethUsd;
+    /// @dev Chainlink's L2 sequencer uptime feed (Base 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433); zero = none.
+    IPriceFeed public immutable sequencerUptime;
     uint256 public immutable maxFeedAge;
     uint256 public immutable minBatch;
     uint256 public immutable maxBatch;
@@ -126,6 +131,7 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         address creditC;
         IEthToTokenSwap venue;
         IPriceFeed ethUsd;
+        IPriceFeed sequencerUptime;
         uint256 maxFeedAge;
         uint256 minBatch;
         uint256 maxBatch;
@@ -172,6 +178,7 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         creditC = c.creditC;
         venue = c.venue;
         ethUsd = c.ethUsd;
+        sequencerUptime = c.sequencerUptime;
         maxFeedAge = c.maxFeedAge;
         minBatch = c.minBatch;
         maxBatch = c.maxBatch;
@@ -277,13 +284,35 @@ contract RegenRouter is IRegenRouterDeposit, ReentrancyGuard {
         return _plan(amount);
     }
 
-    /// @dev Chainlink ETH/USD; 0 when stale or nonsense, which skips the batch rather than trusting a pool.
+    /// @dev Chainlink ETH/USD; 0 when stale or nonsense, which skips the batch rather than trusting a pool. Nonsense
+    ///      includes: the sequencer down or back for under `SEQUENCER_GRACE` (the feed could not have updated), an
+    ///      answer dated in the future, and an answer sitting on the aggregator's min/max clamp (the market has left
+    ///      the feed's range; the clamp is read through the proxy when it exposes one).
     function _ethUsd() private view returns (uint256) {
+        if (address(sequencerUptime) != address(0)) {
+            (, int256 up, uint256 since,,) = sequencerUptime.latestRoundData();
+            if (up != 0 || since == 0 || since > block.timestamp || block.timestamp - since < SEQUENCER_GRACE) {
+                return 0;
+            }
+        }
         (, int256 answer,, uint256 updatedAt,) = ethUsd.latestRoundData();
         if (answer <= 0 || updatedAt == 0 || updatedAt > block.timestamp || block.timestamp - updatedAt > maxFeedAge) {
             return 0;
         }
+        if (_onClamp(answer)) return 0;
         return uint256(answer);
+    }
+
+    function _onClamp(int256 answer) private view returns (bool) {
+        try ethUsd.aggregator() returns (IPriceFeedAggregator agg) {
+            try agg.minAnswer() returns (int192 lo) {
+                if (answer <= int256(lo)) return true;
+            } catch {}
+            try agg.maxAnswer() returns (int192 hi) {
+                if (answer >= int256(hi)) return true;
+            } catch {}
+        } catch {}
+        return false;
     }
 
     /// @dev ETH → USDC through the venue, held to the oracle.
