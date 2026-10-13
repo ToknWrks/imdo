@@ -111,6 +111,14 @@ There is no oracle for kVCM; this is the trade.
 
 ## Rehearsed (dry runs, nothing broadcast; 2026-10-12)
 
+**2026-10-13: cleared for deploy, planned Saturday 2026-10-17.** The bridge operator's reply of 2026-10-12 confirmed the four
+numbers (48 / 9500 / 7200, ceiling 75 taken over the accepted 45), read `cb481da` (206/206), and wrote "With those in, deploy.
+Nothing else from me gates it." His keeper runs every 15 minutes and the status page fills from the router, registry, receiver
+and deploy block we send after the Base broadcast. Ethereum rehearsal re-run the same day after the treasury's 14-argument
+constructor (`017e345`; the IMD leg's no-hook pool key is a constant): passed, 15 transactions, forwarder check passed; use an
+Alchemy RPC (publicnode answers "block not found"). Deployer still at Ethereum nonce 3 / Base nonce 1, 0.027 / 0.0002 ETH:
+fund to 0.03 / 0.001 first. **Fork tests not yet re-run at `017e345`**; do that before Saturday. LAUNCH for the 17th is undecided.
+
 **Second rehearsal, same day, after the ceiling moved to 75 (both passed, nothing broadcast):**
 
 - Base, `DeployRegenRail` from the real deployer (Base nonce 1) with every value in the table above, beneficiary
