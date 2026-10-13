@@ -200,8 +200,11 @@ contract ImdoDeployTest is LocalV4 {
         assertLe(got, 0.8 ether, "sellers never take out more than buyers paid in");
         assertGt(got, 0.6 ether); // 0.8 ETH minus the 20% launch fee on the way out
         assertLt(address(poolManager).balance - pmBefore, 1e9, "the pool is back to (rounding) dust of ETH");
-        // one more sell into the emptied pool: there is no liquidity above the opening price, so nothing fills and the
-        // hook refuses the empty swap instead of paying nothing for real tokens
+        // one more sell into the emptied pool. There is no liquidity above the opening price, so the seller gets NO ETH
+        // and loses only rounding dust (1 wei of tokens): nobody can take out more than buyers paid in. What the pool
+        // does NOT stop is the price reading: with zero liquidity the swap runs the tick to the seller's limit
+        // (MAX here), so slot0 reads an absurd price until the next buy carries it back into the position's range.
+        // Recorded as a finding (cosmetic for the pool, ugly for charts and spot readers); see the hook notes.
         vm.warp(c.launch);
         uint256[] memory ids = new uint256[](1);
         vm.prank(alice);
@@ -210,7 +213,7 @@ contract ImdoDeployTest is LocalV4 {
         assertGt(extra, 0);
         vm.startPrank(alice);
         d.token.approve(address(swapRouter), extra);
-        vm.expectRevert();
+        uint256 aliceEth = alice.balance;
         swapRouter.swap(
             d.key,
             SwapParams(false, -int256(extra), TickMath.MAX_SQRT_PRICE - 1),
@@ -218,7 +221,21 @@ contract ImdoDeployTest is LocalV4 {
             ""
         );
         vm.stopPrank();
-        assertEq(d.token.balanceOf(alice), extra, "nothing was taken");
+        assertEq(alice.balance - aliceEth, 0, "an empty pool pays nothing");
+        assertLe(extra - d.token.balanceOf(alice), 1, "and takes nothing but rounding dust");
+        (, int24 tick3,,) = pm.getSlot0(d.key.toId());
+        assertGt(tick3, c.openingTick, "the price reading runs past the opening tick into empty space");
+        // the next buy fills from the opening price as if nothing happened
+        uint256 had = d.token.balanceOf(address(this));
+        swapRouter.swap{value: 0.1 ether}(
+            d.key,
+            SwapParams(true, -int256(0.1 ether), TickMath.MIN_SQRT_PRICE + 1),
+            PoolSwapTest.TestSettings(false, false),
+            ""
+        );
+        assertGt(d.token.balanceOf(address(this)) - had, 0);
+        (, int24 tick4,,) = pm.getSlot0(d.key.toId());
+        assertLt(tick4, c.openingTick, "back inside the position");
     }
 
     function test_manualSignerRunUsesArgumentsRegardlessOfCaller() public {
