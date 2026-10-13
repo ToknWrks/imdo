@@ -117,7 +117,7 @@ Nothing else from me gates it." His keeper runs every 15 minutes and the status 
 and deploy block we send after the Base broadcast. Ethereum rehearsal re-run the same day after the treasury's 14-argument
 constructor (`017e345`; the IMD leg's no-hook pool key is a constant): passed, 15 transactions, forwarder check passed; use an
 Alchemy RPC (publicnode answers "block not found"). Deployer still at Ethereum nonce 3 / Base nonce 1, 0.027 / 0.0002 ETH:
-fund to 0.03 / 0.001 first. **Fork tests not yet re-run at `017e345`**; do that before Saturday. LAUNCH for the 17th is undecided.
+fund to 0.03 / 0.001 first. Fork tests re-run at `017e345` on 2026-10-13 (`FOUNDRY_PROFILE=fork forge test`, Alchemy RPCs): 13 passed, 0 failed (MainnetFork 1, RegenRouterBaseFork 7, OffsetsForwarderMainnetFork 2, SeatClaimMainnetFork 3). LAUNCH for the 17th is undecided.
 
 **Second rehearsal, same day, after the ceiling moved to 75 (both passed, nothing broadcast):**
 
