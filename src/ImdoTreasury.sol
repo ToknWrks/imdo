@@ -115,7 +115,6 @@ contract ImdoTreasury is IUnlockCallback, ReentrancyGuard {
         address imd,
         uint24 imdFee,
         uint24 imdTickSpacing,
-        address imdHooks,
         uint256 maxEthPerBuy_,
         uint16 slippageBps_,
         uint32 cooldown_,
@@ -144,8 +143,11 @@ contract ImdoTreasury is IUnlockCallback, ReentrancyGuard {
         regenCap = regenCap_;
         regenCapMin = regenCapMin_;
         regenCapMax = regenCapMax_;
-        _imdLeg.key =
-            PoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(imd), imdFee, int24(imdTickSpacing), IHooks(imdHooks));
+        _imdLeg.key = PoolKey(
+            CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(imd), imdFee, int24(imdTickSpacing), IHooks(address(0))
+        );
+        // The IMD leg trades the plain ETH/IMD pool: no hook, by construction. (IMD's launch manifest refuses a zero
+        // address as a constructor argument, so the no-hook key is a constant here rather than a parameter.)
         // Permit constructor-only manifest inspection without chain state. Processing fails closed
         // until real dependencies and an initialized pool exist. The manual script checks them first.
         if (manager_.code.length != 0) {

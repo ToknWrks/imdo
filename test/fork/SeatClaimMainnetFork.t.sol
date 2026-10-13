@@ -37,7 +37,6 @@ contract SeatClaimMainnetForkTest is Test {
             permit2: 0x000000000022D473030F116dDEE9F6B43aC78BA3,
             create2Deployer: address(script),
             imd: 0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7,
-            imdHooks: address(0),
             seatNFT: SEAT_NFT,
             openingTick: 177240,
             holderRoot: HOLDER_ROOT,

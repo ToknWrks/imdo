@@ -63,7 +63,6 @@ contract DeployImdo is Script {
         address permit2;
         address create2Deployer;
         address imd;
-        address imdHooks;
         address seatNFT;
         int24 openingTick;
         bytes32 holderRoot;
@@ -123,7 +122,6 @@ contract DeployImdo is Script {
             c.imd,
             10000,
             200,
-            c.imdHooks,
             1 ether,
             300,
             600,
@@ -196,7 +194,7 @@ contract DeployImdo is Script {
             address(IPositionManager(c.positionManager).poolManager()) != c.poolManager
                 || IPermit2View(c.positionManager).permit2() != c.permit2
         ) revert InvalidConfiguration();
-        PoolKey memory imdKey = PoolKey(Currency.wrap(address(0)), Currency.wrap(c.imd), 10000, 200, IHooks(c.imdHooks));
+        PoolKey memory imdKey = PoolKey(Currency.wrap(address(0)), Currency.wrap(c.imd), 10000, 200, IHooks(address(0)));
         (uint160 price,,,) = IPoolManager(c.poolManager).getSlot0(imdKey.toId());
         if (price == 0 || IPoolManager(c.poolManager).getLiquidity(imdKey.toId()) == 0) revert InvalidConfiguration();
     }

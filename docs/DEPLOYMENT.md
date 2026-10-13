@@ -17,7 +17,6 @@ The assignment performed no deployment. Use a fresh mainnet deployment for the c
 | permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
 | create2Deployer | `0x4e59b44847b379578588920cA78FbF26c0B4956C` for Foundry broadcasts |
 | imd | `0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7` |
-| imdHooks | Zero address |
 | seatNFT | `0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D` |
 | openingTick | Operator-reviewed multiple of 60; ADAM example `177240` |
 | holderRoot | Reviewed immutable sorted-pair Merkle root, or zero to disable holders |
@@ -29,7 +28,7 @@ The assignment performed no deployment. Use a fresh mainnet deployment for the c
 The script's ABI signature is:
 
 ```
-run((uint256,address,address,address,address,address,address,address,address,address,address,address,address,int24,bytes32,uint256,address,address,uint32))
+run((uint256,address,address,address,address,address,address,address,address,address,address,address,int24,bytes32,uint256,address,address,uint32))
 ```
 
 Pass the serialized tuple with `forge script script/DeployImdo.s.sol:DeployImdo --sig '<signature>' '<tuple>' --rpc-url '<operator RPC>' --sender '<manual signer>'`. Select a hardware wallet or externally managed signer using Foundry's signing options. Do not store signing material in this repository. Simulation is the default. The operator decides separately whether to broadcast after reviewing the transaction sequence. No script entry point reads environment variables.

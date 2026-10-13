@@ -55,7 +55,6 @@ contract ImdoDeployTest is LocalV4 {
             address(permit),
             address(script),
             address(imd),
-            address(0),
             address(seats),
             177240,
             bytes32(0),
