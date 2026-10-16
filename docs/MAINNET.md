@@ -21,3 +21,9 @@ Verified right after: `treasury.offsetsSafe() == forwarder`, `forwarder.receiver
 890,000,000 IMDO in the PoolManager, 110,000,000 in ImdoClaim, `claim.launch` 1792177318 (2026-10-16 19:01:58 UTC), `claim.deadline`
 1795546918, `holderRoot` `0x9a0051c6…77ff`, hook `pendingOwner` = Hook Owner Safe `0x5966CA0df8b753D8458162867f3435fa6E49222E`,
 `currentFeeBps` 2000 until `open()`.
+
+## RegenDrop on Base — deployed 2026-10-16
+
+`0xaA9026624658ea0d745E062C5D82fE845474c3f7` on Base (deployer nonce 6; the same address as ImdoTreasury on Ethereum). `token()` =
+axlREGEN `0x2E6C05f1f7D1f4Eb9A088bf12257f1647682b754`, `safe()` = Offsets Treasury Safe `0xb41E9b474D5b6f9d41D76Bcf3129Ea9a4E5011cf`.
+Driven from the Offsets.fun Safe App (bridge → buy → epoch → activate → pay); roots activate 24 h after posting.
