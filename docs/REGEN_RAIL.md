@@ -32,6 +32,16 @@ bridged wei to whoever registers that id first.
 `script/rehearse-mainnet.sh` seats the Safe until `RECEIVER_ON_BASE` is set; the re-rehearsal with the forwarder seat
 is part of the deploy, not optional.
 
+## Deployed on Base (2026-10-14 19:48 UTC, block 52608970)
+
+Broadcast from the deployer `0xe478…4768`, five transactions in one block (Base nonce 1→6), at the addresses predicted below:
+registry `0x5C4fC5f8Decc63Db3D2b62eD6A642444c4E53524`, venue `0x2aBfc2EBdbC1ceDBf8C500cFC6D8a0A3b88A1dB0`, router
+`0x87B525bC5Ff6D7211f16291219c363e082ed4e9F`, factory `0xB92B250B3F7A925806a809cd9AC5667B31Ade93b`, receiver
+`0x528064dEeb2Aa63542B9Ba4665dA25788093e4Bb` (project 1; `factory.predict(1)` and `receiver.projectId()` checked 2026-10-16;
+`registry.project(1)` = IMDO, beneficiary `0x6bbAC4329dcD4C1075A462Db6342Ac0Ce0C78099`). The Ethereum side is seated with
+`RECEIVER_ON_BASE=0x528064dEeb2Aa63542B9Ba4665dA25788093e4Bb`, `OFFSETS=0x0` (dry run passed 2026-10-16 16:55 UTC, 15 txs).
+After the Ethereum broadcast: a 0.001–0.005 ETH test deposit through the receiver, watched end to end by the bridge operator.
+
 ## Parameters (intended values, Base)
 
 | Parameter | Value | Why |
