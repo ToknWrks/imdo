@@ -42,6 +42,22 @@ registry `0x5C4fC5f8Decc63Db3D2b62eD6A642444c4E53524`, venue `0x2aBfc2EBdbC1ceDB
 `RECEIVER_ON_BASE=0x528064dEeb2Aa63542B9Ba4665dA25788093e4Bb`, `OFFSETS=0x0` (dry run passed 2026-10-16 16:55 UTC, 15 txs).
 After the Ethereum broadcast: a 0.001–0.005 ETH test deposit through the receiver, watched end to end by the bridge operator.
 
+## Gas against Base's per-transaction cap (first live batch, 2026-10-16)
+
+Base caps one transaction at **16,777,216 gas** (EIP-7825). The first live `process(1, receiver)`
+(`0xc1ff08db…d1c6`, block 52691539, 0.001 ETH → 0.133943 t of C02-004 for 2.40 USDC, mirrored on Regen Ledger at height
+29312860) used **16,460,179 = 98.1% of the cap**. The bridge operator's keeper now sends at most the cap and refuses when the
+estimate is above it; a batch that cannot be sent waits in the router (nothing is lost, nothing is at risk) until a cheaper block.
+
+Where the gas goes (trace of that tx): the router's own structure is fixed, two planning passes (before and after the ETH → USDC
+swap) × three credits × (`quoteRetireCreditForInputTokenInViaKlima` + up to two `quoteRetireCreditViaKlima` + `referenceKvcm`),
+about 18 aggregator view calls per batch, then one `retireCreditViaKlima` (1.8M). Each aggregator quote cost ~700k in that block.
+The SAME call sequence simulated at block 52650000 (a day earlier) and again right after the batch costs **4.1–4.2M (24–25% of
+the cap) for 0.001, 0.01, 0.05 and 0.5 ETH alike**: batch size does not move it, the aggregator's per-quote cost does (its
+internal offer/pool walk, outside this repo). So the risk is a transient 4× in Klima's quote cost, not our loop count; the router
+is immutable, so the answer is operational: the keeper retries each tick and the batch clears in a cheaper block. Trimming the
+quote count (quote only the winning credit after the swap, or reuse the pre-swap quotes) is a change for the next rail version.
+
 ## Parameters (intended values, Base)
 
 | Parameter | Value | Why |
